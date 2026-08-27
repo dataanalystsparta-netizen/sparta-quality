@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from io import BytesIO
 
 
 # ==========================================================
@@ -21,8 +22,8 @@ COLUMN_NAMES = [
     "Serial_No",                 # 1
     "Month",                     # 2
     "Agent",                     # 3
-    "Verifier",                  # 4
-    "Company",                   # 5
+    "Verifier",                 # 4
+    "Company",                  # 5
     "Sale_Date",                 # 6
     "Raw_7",                     # 7
     "Raw_8",                     # 8
@@ -53,11 +54,24 @@ COLUMN_NAMES = [
     "Payment_Frequency",         # 33
     "Payment_Method",            # 34
     "Contract_Duration",         # 35
-    "Calling_Package",           # 36
+    "Calling_Package",            # 36
     "Raw_37",                    # 37
     "Enrollment_Fee",            # 38
     "Additional_Notes",          # 39
     "Lead_Source"                # 40
+]
+
+
+# ==========================================================
+# FINAL QA RESULTS
+# ==========================================================
+
+FINAL_RESULTS = [
+    "Approved",
+    "Rejected",
+    "Cancelled",
+    "Reworked Required",
+    "Hold"
 ]
 
 
@@ -185,25 +199,19 @@ QA_QUESTIONS = [
 # FATAL PARAMETERS
 # ==========================================================
 
-# Put the parameter numbers that should automatically fail a sale
-# in this set.
-#
-# Example:
-# FATAL_PARAMETERS = {23, 27}
-#
-# For now this is empty until we define the fatal parameters.
-
+# We will define these later.
 FATAL_PARAMETERS = set()
 
 
 # ==========================================================
-# HELPER FUNCTIONS
+# SCORING FUNCTIONS
 # ==========================================================
 
 def calculate_score(answers):
     """
-    Calculate percentage based only on Yes/No answers.
-    N/A answers are excluded.
+    Yes = full credit
+    No = zero credit
+    N/A = excluded
     """
 
     applicable = [
@@ -216,7 +224,8 @@ def calculate_score(answers):
         return 0.0
 
     yes_count = sum(
-        1 for answer in applicable
+        1
+        for answer in applicable
         if answer == "Yes"
     )
 
@@ -228,7 +237,7 @@ def calculate_score(answers):
 
 def has_fatal_failure(answers):
     """
-    Return True if any fatal parameter has been answered No.
+    Returns True when a fatal parameter is answered No.
     """
 
     for parameter_id in FATAL_PARAMETERS:
@@ -239,22 +248,118 @@ def has_fatal_failure(answers):
     return False
 
 
-def calculate_result(answers):
+def calculate_qa_status(answers):
     """
-    Determine final result.
+    Numerical QA status based on score/fatal failure.
+
+    This is separate from the final QA decision.
     """
+
+    score = calculate_score(answers)
 
     if has_fatal_failure(answers):
         return "FAIL"
 
-    score = calculate_score(answers)
-
-    # Temporary pass threshold.
-    # We can change this later.
     if score >= 80:
         return "PASS"
 
     return "FAIL"
+
+
+# ==========================================================
+# EXCEL EXPORT FUNCTION
+# ==========================================================
+
+def create_excel_download(df):
+
+    output = BytesIO()
+
+    with pd.ExcelWriter(
+        output,
+        engine="xlsxwriter"
+    ) as writer:
+
+        # ----------------------------------------------
+        # All sales
+        # ----------------------------------------------
+
+        df.to_excel(
+            writer,
+            sheet_name="QA Results",
+            index=False
+        )
+
+        # ----------------------------------------------
+        # Summary
+        # ----------------------------------------------
+
+        summary_data = {
+            "Metric": [
+                "Total Sales",
+                "Quality Pending",
+                "Completed",
+                "Approved",
+                "Rejected",
+                "Cancelled",
+                "Reworked Required",
+                "Hold",
+                "Fatal Failures"
+            ],
+            "Count": [
+                len(df),
+                (df["QA_Status"] == "Quality Pending").sum(),
+                (df["QA_Status"] == "Completed").sum(),
+                (df["Final_QA_Result"] == "Approved").sum(),
+                (df["Final_QA_Result"] == "Rejected").sum(),
+                (df["Final_QA_Result"] == "Cancelled").sum(),
+                (df["Final_QA_Result"] == "Reworked Required").sum(),
+                (df["Final_QA_Result"] == "Hold").sum(),
+                df["Fatal_Failure"].fillna(False).sum()
+            ]
+        }
+
+        summary_df = pd.DataFrame(summary_data)
+
+        summary_df.to_excel(
+            writer,
+            sheet_name="Summary",
+            index=False
+        )
+
+        # ----------------------------------------------
+        # Agent summary
+        # ----------------------------------------------
+
+        agent_summary = (
+            df.groupby("Agent", dropna=False)
+            .agg(
+                Sales=("QA_ID", "count"),
+                Completed=("QA_Status", lambda x: (x == "Completed").sum()),
+                Average_Score=("QA_Score", "mean"),
+                Approved=("Final_QA_Result", lambda x: (x == "Approved").sum()),
+                Rejected=("Final_QA_Result", lambda x: (x == "Rejected").sum()),
+                Cancelled=("Final_QA_Result", lambda x: (x == "Cancelled").sum()),
+                Reworked=("Final_QA_Result", lambda x: (x == "Reworked Required").sum()),
+                Hold=("Final_QA_Result", lambda x: (x == "Hold").sum()),
+                Fatal_Failures=("Fatal_Failure", "sum")
+            )
+            .reset_index()
+        )
+
+        agent_summary["Average_Score"] = (
+            agent_summary["Average_Score"]
+            .round(2)
+        )
+
+        agent_summary.to_excel(
+            writer,
+            sheet_name="Agent Summary",
+            index=False
+        )
+
+    output.seek(0)
+
+    return output
 
 
 # ==========================================================
@@ -264,7 +369,7 @@ def calculate_result(answers):
 st.title("Sparta QA Checker")
 
 st.caption(
-    "Upload sales → select a sale → complete the 28-point QA checklist."
+    "Upload sales → complete QA → assign final result → export."
 )
 
 
@@ -279,7 +384,7 @@ uploaded_file = st.file_uploader(
 
 
 # ==========================================================
-# READ UPLOAD
+# PROCESS FILE
 # ==========================================================
 
 if uploaded_file is not None:
@@ -304,13 +409,10 @@ if uploaded_file is not None:
 
             st.stop()
 
-        # Apply fixed column names
+        # Apply internal names
         df.columns = COLUMN_NAMES
 
-        # --------------------------------------------------
-        # Remove completely empty rows
-        # --------------------------------------------------
-
+        # Remove fully blank rows
         df = df.dropna(
             how="all"
         ).reset_index(drop=True)
@@ -327,16 +429,16 @@ if uploaded_file is not None:
         df["QA_Status"] = "Quality Pending"
         df["QA_Score"] = None
         df["Fatal_Failure"] = False
-        df["QA_Result"] = None
+        df["QA_Status_Result"] = None
+        df["Final_QA_Result"] = ""
         df["QA_Comments"] = ""
 
         # --------------------------------------------------
-        # Keep uploaded data in session
+        # Store data
         # --------------------------------------------------
 
         st.session_state["sales_data"] = df
 
-        # Create answer storage
         if "qa_answers" not in st.session_state:
             st.session_state["qa_answers"] = {}
 
@@ -355,7 +457,7 @@ if uploaded_file is not None:
 
 
 # ==========================================================
-# MAIN APPLICATION
+# MAIN APP
 # ==========================================================
 
 if "sales_data" in st.session_state:
@@ -363,14 +465,14 @@ if "sales_data" in st.session_state:
     df = st.session_state["sales_data"]
 
     # ======================================================
-    # SUMMARY
+    # DASHBOARD
     # ======================================================
 
     st.divider()
 
     st.subheader("QA Dashboard")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         st.metric(
@@ -380,37 +482,35 @@ if "sales_data" in st.session_state:
 
     with col2:
         st.metric(
-            "Quality Pending",
-            int(
-                (df["QA_Status"] == "Quality Pending").sum()
-            )
+            "Pending",
+            (df["QA_Status"] == "Quality Pending").sum()
         )
 
     with col3:
         st.metric(
             "Completed",
-            int(
-                (df["QA_Status"] == "Completed").sum()
-            )
+            (df["QA_Status"] == "Completed").sum()
         )
 
     with col4:
         st.metric(
-            "Failed",
-            int(
-                (df["QA_Result"] == "FAIL").sum()
-            )
+            "Approved",
+            (df["Final_QA_Result"] == "Approved").sum()
+        )
+
+    with col5:
+        st.metric(
+            "Rejected",
+            (df["Final_QA_Result"] == "Rejected").sum()
         )
 
     # ======================================================
-    # SALE SELECTION
+    # FILTERS
     # ======================================================
 
     st.divider()
 
-    st.subheader("Select Sale")
-
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
 
@@ -423,281 +523,427 @@ if "sales_data" in st.session_state:
         )
 
         selected_agent = st.selectbox(
-            "Agent",
+            "Filter by Agent",
             agents
         )
 
+    # Build filtered data first
+    filtered_df = df.copy()
+
+    if selected_agent != "All":
+
+        filtered_df = filtered_df[
+            filtered_df["Agent"].astype(str)
+            == selected_agent
+        ]
+
     with col2:
 
-        available_df = df.copy()
+        statuses = [
+            "All",
+            "Quality Pending",
+            "Completed"
+        ]
 
-        if selected_agent != "All":
-            available_df = available_df[
-                available_df["Agent"].astype(str)
-                == selected_agent
-            ]
+        selected_status = st.selectbox(
+            "QA Status",
+            statuses
+        )
 
-        sale_options = available_df[
+    if selected_status != "All":
+
+        filtered_df = filtered_df[
+            filtered_df["QA_Status"]
+            == selected_status
+        ]
+
+    with col3:
+
+        result_filter = st.selectbox(
+            "Final Result",
+            ["All"] + FINAL_RESULTS
+        )
+
+    if result_filter != "All":
+
+        filtered_df = filtered_df[
+            filtered_df["Final_QA_Result"]
+            == result_filter
+        ]
+
+    # ======================================================
+    # SALE SELECTOR
+    # ======================================================
+
+    st.divider()
+
+    st.subheader("Select Sale for Quality Check")
+
+    if filtered_df.empty:
+
+        st.warning(
+            "No sales match the selected filters."
+        )
+
+    else:
+
+        sale_options = filtered_df[
             "QA_ID"
         ].tolist()
 
         selected_qa_id = st.selectbox(
-            "Select Sale",
+            "Sale",
             sale_options,
             format_func=lambda x: (
                 f"QA #{x} — "
                 f"{df.loc[df['QA_ID'] == x, 'Customer_Name'].iloc[0]} "
-                f"— Agent: "
+                f"— "
                 f"{df.loc[df['QA_ID'] == x, 'Agent'].iloc[0]}"
             )
         )
 
-    # ======================================================
-    # SELECTED SALE
-    # ======================================================
+        # ==================================================
+        # SELECTED SALE
+        # ==================================================
 
-    sale = df[
-        df["QA_ID"] == selected_qa_id
-    ].iloc[0]
-
-    st.divider()
-
-    st.subheader("Sale Details")
-
-    detail1, detail2, detail3, detail4 = st.columns(4)
-
-    with detail1:
-        st.write("**Customer**")
-        st.write(sale["Customer_Name"])
-
-    with detail2:
-        st.write("**Agent**")
-        st.write(sale["Agent"])
-
-    with detail3:
-        st.write("**Verifier**")
-        st.write(sale["Verifier"])
-
-    with detail4:
-        st.write("**Sale Date**")
-        st.write(sale["Sale_Date"])
-
-    detail1, detail2, detail3, detail4 = st.columns(4)
-
-    with detail1:
-        st.write("**Phone**")
-        st.write(sale["Phone"])
-
-    with detail2:
-        st.write("**Current Provider**")
-        st.write(sale["Current_Provider"])
-
-    with detail3:
-        st.write("**Package Offered**")
-        st.write(sale["Package_Offered"])
-
-    with detail4:
-        st.write("**Broadband**")
-        st.write(sale["Broadband_Type"])
-
-    # ======================================================
-    # QA CHECKLIST
-    # ======================================================
-
-    st.divider()
-
-    st.subheader("Quality Checklist")
-
-    st.info(
-        "Answer every applicable question. "
-        "Use N/A where the parameter genuinely does not apply."
-    )
-
-    # Retrieve previous answers for this sale
-    current_answers = st.session_state[
-        "qa_answers"
-    ].get(
-        selected_qa_id,
-        {}
-    )
-
-    # Create form
-    with st.form(
-        key=f"qa_form_{selected_qa_id}"
-    ):
-
-        answers = {}
-
-        for item in QA_QUESTIONS:
-
-            parameter_id = item["id"]
-
-            fatal_label = ""
-
-            if parameter_id in FATAL_PARAMETERS:
-                fatal_label = " ⚠️ FATAL"
-
-            st.markdown(
-                f"**{parameter_id}. "
-                f"{item['question']}{fatal_label}**"
-            )
-
-            previous_answer = current_answers.get(
-                parameter_id,
-                "Yes"
-            )
-
-            answer = st.radio(
-                label=f"Parameter {parameter_id}",
-                options=["Yes", "No", "N/A"],
-                index=["Yes", "No", "N/A"].index(
-                    previous_answer
-                ),
-                horizontal=True,
-                key=f"answer_{selected_qa_id}_{parameter_id}",
-                label_visibility="collapsed"
-            )
-
-            answers[parameter_id] = answer
-
-            st.divider()
-
-        comments = st.text_area(
-            "QA Comments",
-            value=current_answers.get(
-                "comments",
-                ""
-            ),
-            placeholder="Enter any observations or comments..."
-        )
-
-        submitted = st.form_submit_button(
-            "SUBMIT QA",
-            type="primary",
-            use_container_width=True
-        )
-
-    # ======================================================
-    # SUBMIT QA
-    # ======================================================
-
-    if submitted:
-
-        score = calculate_score(
-            answers
-        )
-
-        fatal_failure = has_fatal_failure(
-            answers
-        )
-
-        result = calculate_result(
-            answers
-        )
-
-        # Save answers
-        answers["comments"] = comments
-
-        st.session_state[
-            "qa_answers"
-        ][selected_qa_id] = answers
-
-        # Update master dataframe
-        df.loc[
-            df["QA_ID"] == selected_qa_id,
-            "QA_Status"
-        ] = "Completed"
-
-        df.loc[
-            df["QA_ID"] == selected_qa_id,
-            "QA_Score"
-        ] = score
-
-        df.loc[
-            df["QA_ID"] == selected_qa_id,
-            "Fatal_Failure"
-        ] = fatal_failure
-
-        df.loc[
-            df["QA_ID"] == selected_qa_id,
-            "QA_Result"
-        ] = result
-
-        df.loc[
-            df["QA_ID"] == selected_qa_id,
-            "QA_Comments"
-        ] = comments
-
-        st.session_state[
-            "sales_data"
-        ] = df
-
-        # --------------------------------------------------
-        # Result display
-        # --------------------------------------------------
+        sale = df[
+            df["QA_ID"] == selected_qa_id
+        ].iloc[0]
 
         st.divider()
 
-        if result == "PASS":
+        st.subheader("Sale Details")
 
-            st.success(
-                f"QA COMPLETED — PASS"
+        detail1, detail2, detail3, detail4 = st.columns(4)
+
+        with detail1:
+            st.write("**Customer**")
+            st.write(sale["Customer_Name"])
+
+        with detail2:
+            st.write("**Agent**")
+            st.write(sale["Agent"])
+
+        with detail3:
+            st.write("**Verifier**")
+            st.write(sale["Verifier"])
+
+        with detail4:
+            st.write("**Sale Date**")
+            st.write(sale["Sale_Date"])
+
+        detail1, detail2, detail3, detail4 = st.columns(4)
+
+        with detail1:
+            st.write("**Phone**")
+            st.write(sale["Phone"])
+
+        with detail2:
+            st.write("**Current Provider**")
+            st.write(sale["Current_Provider"])
+
+        with detail3:
+            st.write("**Package Offered**")
+            st.write(sale["Package_Offered"])
+
+        with detail4:
+            st.write("**Broadband**")
+            st.write(sale["Broadband_Type"])
+
+        # ==================================================
+        # QA CHECKLIST
+        # ==================================================
+
+        st.divider()
+
+        st.subheader("Quality Checklist")
+
+        st.info(
+            "Answer all applicable questions. "
+            "Use N/A where the question genuinely does not apply."
+        )
+
+        current_answers = st.session_state[
+            "qa_answers"
+        ].get(
+            selected_qa_id,
+            {}
+        )
+
+        with st.form(
+            key=f"qa_form_{selected_qa_id}"
+        ):
+
+            answers = {}
+
+            for item in QA_QUESTIONS:
+
+                parameter_id = item["id"]
+
+                fatal_label = ""
+
+                if parameter_id in FATAL_PARAMETERS:
+                    fatal_label = " ⚠️ FATAL"
+
+                st.markdown(
+                    f"**{parameter_id}. "
+                    f"{item['question']}{fatal_label}**"
+                )
+
+                previous_answer = current_answers.get(
+                    parameter_id,
+                    "Yes"
+                )
+
+                answer = st.radio(
+                    label=f"Parameter {parameter_id}",
+                    options=["Yes", "No", "N/A"],
+                    index=[
+                        "Yes",
+                        "No",
+                        "N/A"
+                    ].index(previous_answer),
+                    horizontal=True,
+                    key=f"answer_{selected_qa_id}_{parameter_id}",
+                    label_visibility="collapsed"
+                )
+
+                answers[parameter_id] = answer
+
+                st.divider()
+
+            # --------------------------------------------------
+            # FINAL RESULT
+            # --------------------------------------------------
+
+            st.subheader("Final QA Decision")
+
+            previous_final_result = current_answers.get(
+                "final_result",
+                ""
             )
 
-        else:
+            final_result_options = [
+                "Select Final Result"
+            ] + FINAL_RESULTS
 
-            st.error(
-                f"QA COMPLETED — FAIL"
+            if previous_final_result in FINAL_RESULTS:
+
+                final_index = final_result_options.index(
+                    previous_final_result
+                )
+
+            else:
+
+                final_index = 0
+
+            final_result = st.selectbox(
+                "Final result for this sale",
+                final_result_options,
+                index=final_index
             )
 
-        col1, col2, col3 = st.columns(3)
+            # --------------------------------------------------
+            # COMMENTS
+            # --------------------------------------------------
 
-        with col1:
-            st.metric(
-                "Quality Score",
-                f"{score:.2f}%"
+            comments = st.text_area(
+                "QA Comments",
+                value=current_answers.get(
+                    "comments",
+                    ""
+                ),
+                placeholder=(
+                    "Enter observations, reasons for rejection, "
+                    "rework requirements, hold reasons, etc."
+                )
             )
 
-        with col2:
-            st.metric(
-                "Fatal Failure",
-                "YES" if fatal_failure else "NO"
+            submitted = st.form_submit_button(
+                "SUBMIT QA RESULT",
+                type="primary",
+                use_container_width=True
             )
 
-        with col3:
-            st.metric(
-                "Final Result",
-                result
-            )
+        # ==================================================
+        # SUBMIT
+        # ==================================================
+
+        if submitted:
+
+            if final_result == "Select Final Result":
+
+                st.error(
+                    "Please select a Final QA Result before submitting."
+                )
+
+            else:
+
+                score = calculate_score(
+                    answers
+                )
+
+                fatal_failure = has_fatal_failure(
+                    answers
+                )
+
+                qa_status_result = calculate_qa_status(
+                    answers
+                )
+
+                answers["final_result"] = final_result
+                answers["comments"] = comments
+
+                st.session_state[
+                    "qa_answers"
+                ][selected_qa_id] = answers
+
+                # ------------------------------------------
+                # Update sale
+                # ------------------------------------------
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "QA_Status"
+                ] = "Completed"
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "QA_Score"
+                ] = score
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "Fatal_Failure"
+                ] = fatal_failure
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "QA_Status_Result"
+                ] = qa_status_result
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "Final_QA_Result"
+                ] = final_result
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "QA_Comments"
+                ] = comments
+
+                st.session_state[
+                    "sales_data"
+                ] = df
+
+                # ------------------------------------------
+                # Result display
+                # ------------------------------------------
+
+                st.divider()
+
+                if final_result == "Approved":
+
+                    st.success(
+                        "SALE QA COMPLETED — APPROVED"
+                    )
+
+                elif final_result == "Rejected":
+
+                    st.error(
+                        "SALE QA COMPLETED — REJECTED"
+                    )
+
+                elif final_result == "Cancelled":
+
+                    st.warning(
+                        "SALE QA COMPLETED — CANCELLED"
+                    )
+
+                elif final_result == "Reworked Required":
+
+                    st.warning(
+                        "SALE QA COMPLETED — REWORK REQUIRED"
+                    )
+
+                elif final_result == "Hold":
+
+                    st.info(
+                        "SALE QA COMPLETED — ON HOLD"
+                    )
+
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+
+                    st.metric(
+                        "Quality Score",
+                        f"{score:.2f}%"
+                    )
+
+                with col2:
+
+                    st.metric(
+                        "Fatal Failure",
+                        "YES" if fatal_failure else "NO"
+                    )
+
+                with col3:
+
+                    st.metric(
+                        "Final QA Result",
+                        final_result
+                    )
 
 
-# ==========================================================
-# CURRENT QA RESULTS
-# ==========================================================
-
-if "sales_data" in st.session_state:
+    # ======================================================
+    # CURRENT RESULTS
+    # ======================================================
 
     st.divider()
 
-    st.subheader("QA Results")
+    st.subheader("Current QA Results")
 
     result_columns = [
         "QA_ID",
         "Sale_Date",
         "Agent",
+        "Verifier",
         "Customer_Name",
         "QA_Status",
         "QA_Score",
         "Fatal_Failure",
-        "QA_Result"
+        "Final_QA_Result",
+        "QA_Comments"
     ]
 
-    results_df = st.session_state[
-        "sales_data"
-    ][result_columns].copy()
+    results_df = df[result_columns].copy()
 
     st.dataframe(
         results_df,
         use_container_width=True,
         hide_index=True
+    )
+
+    # ======================================================
+    # DOWNLOAD EXCEL
+    # ======================================================
+
+    st.divider()
+
+    st.subheader("Export")
+
+    excel_file = create_excel_download(
+        df
+    )
+
+    st.download_button(
+        label="Download QA Results Excel",
+        data=excel_file,
+        file_name="Sparta_QA_Results.xlsx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        use_container_width=True
     )
