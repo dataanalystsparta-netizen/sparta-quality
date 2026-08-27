@@ -107,20 +107,20 @@ def generate_pdf(report_data):
     pdf.cell(0, 10, "Sparta Telecom - QA Evaluation Report", 0, 1, 'C')
     pdf.ln(5)
     
-    # Metadata
+    # Metadata (FIXED: Used correct capitalized keys)
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, f"Call Reference: {report_data['call_id']}", 0, 1)
-    pdf.cell(0, 8, f"Agent Name: {report_data['agent_name']}", 0, 1)
-    pdf.cell(0, 8, f"Date of Call: {report_data['call_date']}", 0, 1)
-    pdf.cell(0, 8, f"Evaluator: {report_data['evaluator_name']}", 0, 1)
+    pdf.cell(0, 8, f"Call Reference: {report_data['Call_ID']}", 0, 1)
+    pdf.cell(0, 8, f"Agent Name: {report_data['Agent_Name']}", 0, 1)
+    pdf.cell(0, 8, f"Date of Call: {report_data['Call_Date']}", 0, 1)
+    pdf.cell(0, 8, f"Evaluator: {report_data['Evaluator']}", 0, 1)
     pdf.ln(5)
     
-    # Score
+    # Score (FIXED: Used correct capitalized keys)
     pdf.set_font("Arial", 'B', 14)
-    status = "AUTO-FAIL (Fatal Error)" if report_data['fatal_fail'] else "PASS"
-    color = (255, 0, 0) if report_data['fatal_fail'] else (0, 128, 0)
+    status = "AUTO-FAIL (Fatal Error)" if report_data['Fatal_Fail'] else "PASS"
+    color = (255, 0, 0) if report_data['Fatal_Fail'] else (0, 128, 0)
     pdf.set_text_color(*color)
-    pdf.cell(0, 10, f"Final Score: {report_data['score']}% - {status}", 0, 1)
+    pdf.cell(0, 10, f"Final Score: {report_data['Score']}% - {status}", 0, 1)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(5)
 
@@ -137,11 +137,8 @@ def generate_pdf(report_data):
         res = report_data['responses'].get(q_id, "N/A")
         comment = report_data['comments'].get(q_id, "")
         
-        # Handle long text wrapping for comments
         pdf.cell(10, 8, str(q['id']), 1, 0, 'C')
         
-        # Question text (truncated if too long for single cell, or use multi_cell logic)
-        # For simplicity in standard FPDF, we'll use a fixed height cell
         q_text = q['text'][:80] + "..." if len(q['text']) > 80 else q['text']
         pdf.cell(120, 8, q_text, 1, 0, 'L')
         
@@ -149,7 +146,6 @@ def generate_pdf(report_data):
         pdf.cell(45, 8, comment[:30] + "..." if len(comment) > 30 else comment, 1, 1, 'L')
 
     return pdf.output()
-
 # ==========================================
 # STREAMLIT UI
 # ==========================================
