@@ -115,7 +115,8 @@ QA_QUESTIONS = [
 # FATAL PARAMETERS
 # ==========================================================
 
-# We will define these later.
+# Add parameter numbers here later.
+#
 # Example:
 # FATAL_PARAMETERS = {23, 27}
 
@@ -131,7 +132,6 @@ def calculate_score(answers):
     Yes = full credit
     No = zero credit
     N/A = excluded
-    Unanswered = excluded while saving progress
     """
 
     applicable = [
@@ -156,6 +156,9 @@ def calculate_score(answers):
 
 
 def has_fatal_failure(answers):
+    """
+    Returns True when a fatal parameter is answered No.
+    """
 
     for parameter_id in FATAL_PARAMETERS:
 
@@ -173,9 +176,9 @@ def create_excel_download(df, qa_answers):
 
     output = BytesIO()
 
-    # ----------------------------------------------
-    # Build detailed QA data
-    # ----------------------------------------------
+    # ------------------------------------------------------
+    # Detailed QA data
+    # ------------------------------------------------------
 
     detailed_rows = []
 
@@ -202,17 +205,12 @@ def create_excel_download(df, qa_answers):
             "QA_Comments": row["QA_Comments"]
         }
 
-        # Add all 28 answers
+        # Add all 28 parameter answers
         for i in range(1, 29):
-
-            answer = answers.get(
-                i,
-                ""
-            )
 
             detailed_row[
                 f"Parameter_{i}"
-            ] = answer
+            ] = answers.get(i, "Yes")
 
         detailed_rows.append(
             detailed_row
@@ -222,9 +220,9 @@ def create_excel_download(df, qa_answers):
         detailed_rows
     )
 
-    # ----------------------------------------------
+    # ------------------------------------------------------
     # Simple results sheet
-    # ----------------------------------------------
+    # ------------------------------------------------------
 
     result_columns = [
         "QA_ID",
@@ -244,9 +242,9 @@ def create_excel_download(df, qa_answers):
         result_columns
     ].copy()
 
-    # ----------------------------------------------
+    # ------------------------------------------------------
     # Write exactly 2 sheets
-    # ----------------------------------------------
+    # ------------------------------------------------------
 
     with pd.ExcelWriter(
         output,
@@ -265,9 +263,9 @@ def create_excel_download(df, qa_answers):
             index=False
         )
 
-        # ------------------------------------------
-        # Basic formatting
-        # ------------------------------------------
+        # --------------------------------------------------
+        # Formatting
+        # --------------------------------------------------
 
         workbook = writer.book
 
@@ -275,6 +273,10 @@ def create_excel_download(df, qa_answers):
             "bold": True,
             "text_wrap": True,
             "valign": "top"
+        })
+
+        score_format = workbook.add_format({
+            "num_format": "0.00%"
         })
 
         for sheet_name, dataframe in [
@@ -286,7 +288,7 @@ def create_excel_download(df, qa_answers):
                 sheet_name
             ]
 
-            # Header
+            # Headers
             for col_num, column_name in enumerate(
                 dataframe.columns
             ):
@@ -298,13 +300,13 @@ def create_excel_download(df, qa_answers):
                     header_format
                 )
 
-            # Freeze header row
+            # Freeze first row
             worksheet.freeze_panes(
                 1,
                 0
             )
 
-            # Autofilter
+            # Filter
             worksheet.autofilter(
                 0,
                 0,
@@ -312,7 +314,7 @@ def create_excel_download(df, qa_answers):
                 len(dataframe.columns) - 1
             )
 
-            # Reasonable width
+            # Column widths
             for col_num, column_name in enumerate(
                 dataframe.columns
             ):
@@ -328,7 +330,7 @@ def create_excel_download(df, qa_answers):
                     "QA_Comments"
                 ]:
 
-                    width = 30
+                    width = 32
 
                 else:
 
@@ -346,11 +348,14 @@ def create_excel_download(df, qa_answers):
 
 
 # ==========================================================
-# INITIAL SESSION STATE
+# SESSION STATE
 # ==========================================================
 
 if "qa_answers" not in st.session_state:
-    st.session_state["qa_answers"] = {}
+
+    st.session_state[
+        "qa_answers"
+    ] = {}
 
 
 # ==========================================================
@@ -403,7 +408,10 @@ if uploaded_file is not None:
 
             st.stop()
 
-        # Apply internal names
+        # --------------------------------------------------
+        # Apply internal column names
+        # --------------------------------------------------
+
         df.columns = COLUMN_NAMES
 
         # Remove empty rows
@@ -412,9 +420,7 @@ if uploaded_file is not None:
         ).reset_index(drop=True)
 
         # --------------------------------------------------
-        # IMPORTANT:
-        # Don't recreate / overwrite session data when
-        # Streamlit reruns after Save Progress.
+        # Detect a new upload
         # --------------------------------------------------
 
         uploaded_file_key = (
@@ -446,7 +452,6 @@ if uploaded_file is not None:
                 "uploaded_file_key"
             ] = uploaded_file_key
 
-            # Reset answers for new upload
             st.session_state[
                 "qa_answers"
             ] = {}
@@ -486,12 +491,14 @@ if "sales_data" in st.session_state:
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
+
         st.metric(
             "Total Sales",
             len(df)
         )
 
     with col2:
+
         st.metric(
             "Pending",
             (
@@ -501,6 +508,7 @@ if "sales_data" in st.session_state:
         )
 
     with col3:
+
         st.metric(
             "Completed",
             (
@@ -510,6 +518,7 @@ if "sales_data" in st.session_state:
         )
 
     with col4:
+
         st.metric(
             "Approved",
             (
@@ -519,6 +528,7 @@ if "sales_data" in st.session_state:
         )
 
     with col5:
+
         st.metric(
             "Rejected",
             (
@@ -647,24 +657,28 @@ if "sales_data" in st.session_state:
         detail1, detail2, detail3, detail4 = st.columns(4)
 
         with detail1:
+
             st.write("**Customer**")
             st.write(
                 sale["Customer_Name"]
             )
 
         with detail2:
+
             st.write("**Agent**")
             st.write(
                 sale["Agent"]
             )
 
         with detail3:
+
             st.write("**Verifier**")
             st.write(
                 sale["Verifier"]
             )
 
         with detail4:
+
             st.write("**Sale Date**")
             st.write(
                 sale["Sale_Date"]
@@ -673,31 +687,35 @@ if "sales_data" in st.session_state:
         detail1, detail2, detail3, detail4 = st.columns(4)
 
         with detail1:
+
             st.write("**Phone**")
             st.write(
                 sale["Phone"]
             )
 
         with detail2:
+
             st.write("**Current Provider**")
             st.write(
                 sale["Current_Provider"]
             )
 
         with detail3:
+
             st.write("**Package Offered**")
             st.write(
                 sale["Package_Offered"]
             )
 
         with detail4:
+
             st.write("**Broadband**")
             st.write(
                 sale["Broadband_Type"]
             )
 
         # ==================================================
-        # EXISTING ANSWERS
+        # LOAD EXISTING ANSWERS
         # ==================================================
 
         current_answers = st.session_state[
@@ -718,8 +736,8 @@ if "sales_data" in st.session_state:
         )
 
         st.info(
-            "You can save your progress without submitting "
-            "the final QA result."
+            "All questions default to Yes. "
+            "Change any question to No or N/A where appropriate."
         )
 
         with st.form(
@@ -733,27 +751,42 @@ if "sales_data" in st.session_state:
                 start=1
             ):
 
+                # ------------------------------------------
+                # Fatal label
+                # ------------------------------------------
+
                 fatal_label = ""
 
                 if parameter_id in FATAL_PARAMETERS:
+
                     fatal_label = " ⚠️ FATAL"
 
                 st.markdown(
                     f"**{parameter_id}. "
-                    f"{question}{fatal_label}**"
+                    f"{question}"
+                    f"{fatal_label}**"
                 )
+
+                # ------------------------------------------
+                # Existing answer / default = Yes
+                # ------------------------------------------
 
                 previous_answer = current_answers.get(
                     parameter_id,
-                    "Not Answered"
+                    "Yes"
                 )
 
                 options = [
-                    "Not Answered",
                     "Yes",
                     "No",
                     "N/A"
                 ]
+
+                # Safety check in case an invalid value
+                # exists in stored session data.
+                if previous_answer not in options:
+
+                    previous_answer = "Yes"
 
                 answer = st.radio(
                     label=f"Parameter {parameter_id}",
@@ -827,7 +860,10 @@ if "sales_data" in st.session_state:
 
             st.write("")
 
-            # Two actions
+            # ==================================================
+            # ACTION BUTTONS
+            # ==================================================
+
             save_progress = st.form_submit_button(
                 "💾 SAVE PROGRESS",
                 use_container_width=True
@@ -845,6 +881,10 @@ if "sales_data" in st.session_state:
 
         if save_progress:
 
+            # Save everything currently entered.
+            # If the final result has not been selected,
+            # keep it blank.
+
             answers["final_result"] = (
                 final_result
                 if final_result != "Select Final Result"
@@ -853,12 +893,12 @@ if "sales_data" in st.session_state:
 
             answers["comments"] = comments
 
-            # Save answers into session
+            # Save to session
             st.session_state[
                 "qa_answers"
             ][selected_qa_id] = answers
 
-            # Calculate current score from answered items
+            # Calculate current score
             score = calculate_score(
                 answers
             )
@@ -867,8 +907,7 @@ if "sales_data" in st.session_state:
                 answers
             )
 
-            # Update score and fatal indicator,
-            # but keep status as Pending.
+            # Update the sale
             df.loc[
                 df["QA_ID"] == selected_qa_id,
                 "QA_Score"
@@ -883,6 +922,13 @@ if "sales_data" in st.session_state:
                 df["QA_ID"] == selected_qa_id,
                 "QA_Comments"
             ] = comments
+
+            # IMPORTANT:
+            # Save Progress does NOT mark the sale Completed.
+            df.loc[
+                df["QA_ID"] == selected_qa_id,
+                "QA_Status"
+            ] = "Quality Pending"
 
             st.session_state[
                 "sales_data"
@@ -909,141 +955,121 @@ if "sales_data" in st.session_state:
             else:
 
                 # ------------------------------------------
-                # Check unanswered parameters
+                # Save answers
                 # ------------------------------------------
 
-                unanswered = [
-                    parameter_id
-                    for parameter_id, answer
-                    in answers.items()
-                    if answer == "Not Answered"
-                ]
+                answers["final_result"] = final_result
+                answers["comments"] = comments
 
-                if unanswered:
+                st.session_state[
+                    "qa_answers"
+                ][selected_qa_id] = answers
+
+                # ------------------------------------------
+                # Calculate
+                # ------------------------------------------
+
+                score = calculate_score(
+                    answers
+                )
+
+                fatal_failure = has_fatal_failure(
+                    answers
+                )
+
+                # ------------------------------------------
+                # Update sale
+                # ------------------------------------------
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "QA_Status"
+                ] = "Completed"
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "QA_Score"
+                ] = score
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "Fatal_Failure"
+                ] = fatal_failure
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "Final_QA_Result"
+                ] = final_result
+
+                df.loc[
+                    df["QA_ID"] == selected_qa_id,
+                    "QA_Comments"
+                ] = comments
+
+                st.session_state[
+                    "sales_data"
+                ] = df
+
+                # ------------------------------------------
+                # Display final result
+                # ------------------------------------------
+
+                st.divider()
+
+                if final_result == "Approved":
+
+                    st.success(
+                        "SALE QA COMPLETED — APPROVED"
+                    )
+
+                elif final_result == "Rejected":
 
                     st.error(
-                        "Please answer all 28 parameters "
-                        "before submitting the final QA."
+                        "SALE QA COMPLETED — REJECTED"
                     )
 
-                else:
+                elif final_result == "Cancelled":
 
-                    # --------------------------------------
-                    # Save answers
-                    # --------------------------------------
-
-                    answers["final_result"] = final_result
-                    answers["comments"] = comments
-
-                    st.session_state[
-                        "qa_answers"
-                    ][selected_qa_id] = answers
-
-                    # --------------------------------------
-                    # Calculate result
-                    # --------------------------------------
-
-                    score = calculate_score(
-                        answers
+                    st.warning(
+                        "SALE QA COMPLETED — CANCELLED"
                     )
 
-                    fatal_failure = has_fatal_failure(
-                        answers
+                elif final_result == "Reworked Required":
+
+                    st.warning(
+                        "SALE QA COMPLETED — REWORK REQUIRED"
                     )
 
-                    # --------------------------------------
-                    # Update sale
-                    # --------------------------------------
+                elif final_result == "Hold":
 
-                    df.loc[
-                        df["QA_ID"] == selected_qa_id,
-                        "QA_Status"
-                    ] = "Completed"
+                    st.info(
+                        "SALE QA COMPLETED — ON HOLD"
+                    )
 
-                    df.loc[
-                        df["QA_ID"] == selected_qa_id,
-                        "QA_Score"
-                    ] = score
+                col1, col2, col3 = st.columns(3)
 
-                    df.loc[
-                        df["QA_ID"] == selected_qa_id,
-                        "Fatal_Failure"
-                    ] = fatal_failure
+                with col1:
 
-                    df.loc[
-                        df["QA_ID"] == selected_qa_id,
-                        "Final_QA_Result"
-                    ] = final_result
+                    st.metric(
+                        "Quality Score",
+                        f"{score:.2f}%"
+                    )
 
-                    df.loc[
-                        df["QA_ID"] == selected_qa_id,
-                        "QA_Comments"
-                    ] = comments
+                with col2:
 
-                    st.session_state[
-                        "sales_data"
-                    ] = df
+                    st.metric(
+                        "Fatal Failure",
+                        "YES"
+                        if fatal_failure
+                        else "NO"
+                    )
 
-                    # --------------------------------------
-                    # Display result
-                    # --------------------------------------
+                with col3:
 
-                    st.divider()
-
-                    if final_result == "Approved":
-
-                        st.success(
-                            "SALE QA COMPLETED — APPROVED"
-                        )
-
-                    elif final_result == "Rejected":
-
-                        st.error(
-                            "SALE QA COMPLETED — REJECTED"
-                        )
-
-                    elif final_result == "Cancelled":
-
-                        st.warning(
-                            "SALE QA COMPLETED — CANCELLED"
-                        )
-
-                    elif final_result == "Reworked Required":
-
-                        st.warning(
-                            "SALE QA COMPLETED — REWORK REQUIRED"
-                        )
-
-                    elif final_result == "Hold":
-
-                        st.info(
-                            "SALE QA COMPLETED — ON HOLD"
-                        )
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-
-                        st.metric(
-                            "Quality Score",
-                            f"{score:.2f}%"
-                        )
-
-                    with col2:
-
-                        st.metric(
-                            "Fatal Failure",
-                            "YES"
-                            if fatal_failure
-                            else "NO"
-                        )
-
-                    with col3:
-
-                        st.metric(
-                            "Final QA Result",
-                            final_result
-                        )
+                    st.metric(
+                        "Final QA Result",
+                        final_result
+                    )
 
 
     # ======================================================
@@ -1091,7 +1117,9 @@ if "sales_data" in st.session_state:
 
     excel_file = create_excel_download(
         df,
-        st.session_state["qa_answers"]
+        st.session_state[
+            "qa_answers"
+        ]
     )
 
     st.download_button(
