@@ -144,35 +144,10 @@ QA_QUESTIONS = [
 # FATAL PARAMETERS
 # ==========================================================
 
-# Add parameter numbers here when finalized.
-#
 # Example:
 # FATAL_PARAMETERS = {23, 27}
 
 FATAL_PARAMETERS = set()
-
-
-# ==========================================================
-# SAFE VALUE HELPER
-# ==========================================================
-
-def safe_value(row, column_name):
-    """
-    Safely retrieve a value from a row.
-
-    Prevents the application from crashing if a column
-    is missing or contains NaN.
-    """
-
-    if column_name not in row.index:
-        return ""
-
-    value = row[column_name]
-
-    if pd.isna(value):
-        return ""
-
-    return str(value).strip()
 
 
 # ==========================================================
@@ -215,6 +190,26 @@ def has_fatal_failure(answers):
             return True
 
     return False
+
+
+# ==========================================================
+# SAFE VALUE
+# ==========================================================
+
+def safe_value(row, column_name):
+    """
+    Safely retrieve a value from the row.
+    """
+
+    if column_name not in row.index:
+        return ""
+
+    value = row[column_name]
+
+    if pd.isna(value):
+        return ""
+
+    return str(value).strip()
 
 
 # ==========================================================
@@ -264,7 +259,7 @@ def create_excel_download(df, qa_answers):
     output = BytesIO()
 
     # ------------------------------------------------------
-    # QA Results sheet
+    # SIMPLE RESULTS
     # ------------------------------------------------------
 
     result_columns = [
@@ -281,11 +276,10 @@ def create_excel_download(df, qa_answers):
         "QA_Comments"
     ]
 
-    # Only use columns that actually exist
     available_result_columns = [
-        column
-        for column in result_columns
-        if column in df.columns
+        col
+        for col in result_columns
+        if col in df.columns
     ]
 
     results_df = df[
@@ -293,7 +287,7 @@ def create_excel_download(df, qa_answers):
     ].copy()
 
     # ------------------------------------------------------
-    # Detailed QA sheet
+    # DETAILED QA
     # ------------------------------------------------------
 
     detailed_rows = []
@@ -309,14 +303,38 @@ def create_excel_download(df, qa_answers):
 
         detailed_row = {
             "QA_ID": qa_id,
-            "Sale_Date": safe_value(row, "Sale_Date"),
-            "Agent": safe_value(row, "Agent"),
-            "Verifier": safe_value(row, "Verifier"),
-            "Customer_Name": safe_value(row, "Customer_Name"),
-            "Phone": safe_value(row, "Phone"),
-            "QA_Status": safe_value(row, "QA_Status"),
-            "QA_Score": row.get("QA_Score", ""),
-            "Fatal_Failure": row.get("Fatal_Failure", ""),
+            "Sale_Date": safe_value(
+                row,
+                "Sale_Date"
+            ),
+            "Agent": safe_value(
+                row,
+                "Agent"
+            ),
+            "Verifier": safe_value(
+                row,
+                "Verifier"
+            ),
+            "Customer_Name": safe_value(
+                row,
+                "Customer_Name"
+            ),
+            "Phone": safe_value(
+                row,
+                "Phone"
+            ),
+            "QA_Status": safe_value(
+                row,
+                "QA_Status"
+            ),
+            "QA_Score": row.get(
+                "QA_Score",
+                ""
+            ),
+            "Fatal_Failure": row.get(
+                "Fatal_Failure",
+                ""
+            ),
             "Final_QA_Result": safe_value(
                 row,
                 "Final_QA_Result"
@@ -346,7 +364,7 @@ def create_excel_download(df, qa_answers):
     )
 
     # ------------------------------------------------------
-    # Write Excel
+    # WRITE EXCEL
     # ------------------------------------------------------
 
     with pd.ExcelWriter(
@@ -354,14 +372,12 @@ def create_excel_download(df, qa_answers):
         engine="xlsxwriter"
     ) as writer:
 
-        # Sheet 1
         results_df.to_excel(
             writer,
             sheet_name="QA Results",
             index=False
         )
 
-        # Sheet 2
         detailed_df.to_excel(
             writer,
             sheet_name="Detailed QA",
@@ -376,9 +392,9 @@ def create_excel_download(df, qa_answers):
             "valign": "top"
         })
 
-        # --------------------------------------------------
-        # Format sheets
-        # --------------------------------------------------
+        # ----------------------------------------------
+        # FORMAT SHEETS
+        # ----------------------------------------------
 
         for sheet_name, dataframe in [
             ("QA Results", results_df),
@@ -389,7 +405,7 @@ def create_excel_download(df, qa_answers):
                 sheet_name
             ]
 
-            # Headers
+            # Header formatting
             for col_num, column_name in enumerate(
                 dataframe.columns
             ):
@@ -401,13 +417,13 @@ def create_excel_download(df, qa_answers):
                     header_format
                 )
 
-            # Freeze top row
+            # Freeze header
             worksheet.freeze_panes(
                 1,
                 0
             )
 
-            # Autofilter
+            # Filter
             if not dataframe.empty:
 
                 worksheet.autofilter(
@@ -469,7 +485,9 @@ if "qa_answers" not in st.session_state:
 # HEADER
 # ==========================================================
 
-st.title("Sparta QA Checker")
+st.title(
+    "Sparta QA Checker"
+)
 
 st.caption(
     "Upload sales → complete QA → save progress → submit final result."
@@ -494,47 +512,36 @@ if uploaded_file is not None:
 
     try:
 
-        # --------------------------------------------------
         # Read raw Excel
-        # --------------------------------------------------
-
         df = pd.read_excel(
             uploaded_file,
             header=None
         )
 
-        # --------------------------------------------------
-        # Validate column count
-        # --------------------------------------------------
-
+        # Validate number of columns
         actual_columns = df.shape[1]
 
         if actual_columns != EXPECTED_COLUMN_COUNT:
 
             st.error(
                 f"Unexpected file structure. "
-                f"Expected exactly {EXPECTED_COLUMN_COUNT} "
-                f"columns, but found {actual_columns}."
+                f"Expected exactly "
+                f"{EXPECTED_COLUMN_COUNT} columns, "
+                f"but found {actual_columns}."
             )
 
             st.stop()
 
-        # --------------------------------------------------
-        # Apply fixed names
-        # --------------------------------------------------
-
+        # Apply names
         df.columns = COLUMN_NAMES
 
-        # --------------------------------------------------
-        # Remove completely blank rows
-        # --------------------------------------------------
-
+        # Remove empty rows
         df = df.dropna(
             how="all"
         ).reset_index(drop=True)
 
         # --------------------------------------------------
-        # Create unique upload key
+        # Upload identifier
         # --------------------------------------------------
 
         uploaded_file_key = (
@@ -551,13 +558,11 @@ if uploaded_file is not None:
             "uploaded_file_key"
         ) != uploaded_file_key:
 
-            # QA ID
             df["QA_ID"] = range(
                 1,
                 len(df) + 1
             )
 
-            # QA fields
             df["QA_Status"] = (
                 "Quality Pending"
             )
@@ -570,7 +575,6 @@ if uploaded_file is not None:
 
             df["QA_Comments"] = ""
 
-            # Store
             st.session_state[
                 "sales_data"
             ] = df
@@ -579,7 +583,6 @@ if uploaded_file is not None:
                 "uploaded_file_key"
             ] = uploaded_file_key
 
-            # Reset answers
             st.session_state[
                 "qa_answers"
             ] = {}
@@ -599,7 +602,7 @@ if uploaded_file is not None:
 
 
 # ==========================================================
-# MAIN APP
+# MAIN APPLICATION
 # ==========================================================
 
 if "sales_data" in st.session_state:
@@ -819,16 +822,14 @@ if "sales_data" in st.session_state:
         )
 
         # --------------------------------------------------
-        # Row 1
+        # Customer / Basic
         # --------------------------------------------------
 
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
 
-            st.caption(
-                "Customer"
-            )
+            st.caption("Customer")
 
             st.write(
                 safe_value(
@@ -839,9 +840,7 @@ if "sales_data" in st.session_state:
 
         with col2:
 
-            st.caption(
-                "Phone"
-            )
+            st.caption("Phone")
 
             st.write(
                 safe_value(
@@ -852,9 +851,7 @@ if "sales_data" in st.session_state:
 
         with col3:
 
-            st.caption(
-                "Agent"
-            )
+            st.caption("Agent")
 
             st.write(
                 safe_value(
@@ -865,9 +862,7 @@ if "sales_data" in st.session_state:
 
         with col4:
 
-            st.caption(
-                "Verifier"
-            )
+            st.caption("Verifier")
 
             st.write(
                 safe_value(
@@ -877,16 +872,14 @@ if "sales_data" in st.session_state:
             )
 
         # --------------------------------------------------
-        # Row 2
+        # Sale information
         # --------------------------------------------------
 
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
 
-            st.caption(
-                "Sale Date"
-            )
+            st.caption("Sale Date")
 
             st.write(
                 safe_value(
@@ -897,9 +890,7 @@ if "sales_data" in st.session_state:
 
         with col2:
 
-            st.caption(
-                "Current Provider"
-            )
+            st.caption("Current Provider")
 
             st.write(
                 safe_value(
@@ -910,9 +901,7 @@ if "sales_data" in st.session_state:
 
         with col3:
 
-            st.caption(
-                "Broadband Type"
-            )
+            st.caption("Broadband Type")
 
             st.write(
                 safe_value(
@@ -923,9 +912,7 @@ if "sales_data" in st.session_state:
 
         with col4:
 
-            st.caption(
-                "Payment Method"
-            )
+            st.caption("Payment Method")
 
             st.write(
                 safe_value(
@@ -935,16 +922,14 @@ if "sales_data" in st.session_state:
             )
 
         # --------------------------------------------------
-        # Row 3
+        # Package
         # --------------------------------------------------
 
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
 
-            st.caption(
-                "Package"
-            )
+            st.caption("Package")
 
             st.write(
                 safe_value(
@@ -955,9 +940,7 @@ if "sales_data" in st.session_state:
 
         with col2:
 
-            st.caption(
-                "Service"
-            )
+            st.caption("Service")
 
             st.write(
                 safe_value(
@@ -968,9 +951,7 @@ if "sales_data" in st.session_state:
 
         with col3:
 
-            st.caption(
-                "Router Charges"
-            )
+            st.caption("Router Charges")
 
             st.write(
                 safe_value(
@@ -981,9 +962,7 @@ if "sales_data" in st.session_state:
 
         with col4:
 
-            st.caption(
-                "Contract Duration"
-            )
+            st.caption("Contract Duration")
 
             st.write(
                 safe_value(
@@ -993,7 +972,7 @@ if "sales_data" in st.session_state:
             )
 
         # --------------------------------------------------
-        # Row 4
+        # Calling / Billing
         # --------------------------------------------------
 
         col1, col2, col3, col4 = st.columns(4)
@@ -1051,7 +1030,7 @@ if "sales_data" in st.session_state:
             )
 
         # --------------------------------------------------
-        # Address
+        # Customer address
         # --------------------------------------------------
 
         st.caption(
@@ -1066,7 +1045,7 @@ if "sales_data" in st.session_state:
         )
 
         # --------------------------------------------------
-        # Additional Notes
+        # Additional notes
         # --------------------------------------------------
 
         notes = safe_value(
@@ -1098,7 +1077,7 @@ if "sales_data" in st.session_state:
         )
 
         # ==================================================
-        # QA CHECKLIST
+        # QUALITY CHECKLIST
         # ==================================================
 
         st.divider()
@@ -1107,13 +1086,13 @@ if "sales_data" in st.session_state:
             "Quality Checklist"
         )
 
-        st.info(
+        st.caption(
             "All questions default to Yes. "
-            "Change any question to No or N/A where appropriate."
+            "Change to No or N/A where appropriate."
         )
 
         # ==================================================
-        # FORM
+        # QA FORM
         # ==================================================
 
         with st.form(
@@ -1123,7 +1102,7 @@ if "sales_data" in st.session_state:
             answers = {}
 
             # --------------------------------------------------
-            # 28 Parameters
+            # 28 QUESTIONS
             # --------------------------------------------------
 
             for parameter_id, question in enumerate(
@@ -1131,59 +1110,76 @@ if "sales_data" in st.session_state:
                 start=1
             ):
 
-                fatal_label = ""
+                # ------------------------------------------
+                # Two-column row
+                # ------------------------------------------
 
-                if parameter_id in FATAL_PARAMETERS:
+                question_col, answer_col = st.columns(
+                    [7.5, 2.5],
+                    vertical_alignment="center"
+                )
 
-                    fatal_label = (
-                        " ⚠️ FATAL"
+                with question_col:
+
+                    if parameter_id in FATAL_PARAMETERS:
+
+                        st.markdown(
+                            f"**{parameter_id}. "
+                            f"{question} "
+                            f"⚠️**"
+                        )
+
+                    else:
+
+                        st.markdown(
+                            f"**{parameter_id}. "
+                            f"{question}**"
+                        )
+
+                with answer_col:
+
+                    previous_answer = current_answers.get(
+                        parameter_id,
+                        "Yes"
                     )
 
-                st.markdown(
-                    f"**{parameter_id}. "
-                    f"{question}"
-                    f"{fatal_label}**"
-                )
+                    options = [
+                        "Yes",
+                        "No",
+                        "N/A"
+                    ]
 
-                previous_answer = current_answers.get(
-                    parameter_id,
-                    "Yes"
-                )
+                    if previous_answer not in options:
 
-                options = [
-                    "Yes",
-                    "No",
-                    "N/A"
-                ]
+                        previous_answer = "Yes"
 
-                if previous_answer not in options:
+                    answer = st.radio(
+                        label=f"Parameter {parameter_id}",
+                        options=options,
+                        index=options.index(
+                            previous_answer
+                        ),
+                        horizontal=True,
+                        key=(
+                            f"answer_"
+                            f"{selected_qa_id}_"
+                            f"{parameter_id}"
+                        ),
+                        label_visibility="collapsed"
+                    )
 
-                    previous_answer = "Yes"
+                    answers[
+                        parameter_id
+                    ] = answer
 
-                answer = st.radio(
-                    label=f"Parameter {parameter_id}",
-                    options=options,
-                    index=options.index(
-                        previous_answer
-                    ),
-                    horizontal=True,
-                    key=(
-                        f"answer_"
-                        f"{selected_qa_id}_"
-                        f"{parameter_id}"
-                    ),
-                    label_visibility="collapsed"
-                )
-
-                answers[
-                    parameter_id
-                ] = answer
-
-                st.divider()
+                # Small spacing between rows
+                st.write("")
 
             # ==================================================
-            # FINAL DECISION
+            # FINAL QA DECISION
             # ==================================================
+
+            st.divider()
 
             st.subheader(
                 "Final QA Decision"
@@ -1233,7 +1229,7 @@ if "sales_data" in st.session_state:
             st.write("")
 
             # ==================================================
-            # BUTTONS
+            # ACTION BUTTONS
             # ==================================================
 
             save_progress = st.form_submit_button(
@@ -1253,20 +1249,25 @@ if "sales_data" in st.session_state:
 
         if save_progress:
 
-            answers["final_result"] = (
+            answers[
+                "final_result"
+            ] = (
                 final_result
-                if final_result != "Select Final Result"
+                if final_result
+                != "Select Final Result"
                 else ""
             )
 
-            answers["comments"] = comments
+            answers[
+                "comments"
+            ] = comments
 
-            # Store answers
+            # Save answers
             st.session_state[
                 "qa_answers"
             ][selected_qa_id] = answers
 
-            # Current score
+            # Calculate current score
             score = calculate_score(
                 answers
             )
@@ -1275,26 +1276,28 @@ if "sales_data" in st.session_state:
                 answers
             )
 
-            # Update sale
+            # Update score
             df.loc[
                 df["QA_ID"]
                 == selected_qa_id,
                 "QA_Score"
             ] = score
 
+            # Update fatal flag
             df.loc[
                 df["QA_ID"]
                 == selected_qa_id,
                 "Fatal_Failure"
             ] = fatal_failure
 
+            # Update comments
             df.loc[
                 df["QA_ID"]
                 == selected_qa_id,
                 "QA_Comments"
             ] = comments
 
-            # Keep pending
+            # Keep status pending
             df.loc[
                 df["QA_ID"]
                 == selected_qa_id,
@@ -1325,7 +1328,10 @@ if "sales_data" in st.session_state:
 
             else:
 
+                # ------------------------------------------
                 # Save answers
+                # ------------------------------------------
+
                 answers[
                     "final_result"
                 ] = final_result
@@ -1338,7 +1344,10 @@ if "sales_data" in st.session_state:
                     "qa_answers"
                 ][selected_qa_id] = answers
 
+                # ------------------------------------------
                 # Calculate
+                # ------------------------------------------
+
                 score = calculate_score(
                     answers
                 )
@@ -1347,7 +1356,10 @@ if "sales_data" in st.session_state:
                     answers
                 )
 
+                # ------------------------------------------
                 # Update sale
+                # ------------------------------------------
+
                 df.loc[
                     df["QA_ID"]
                     == selected_qa_id,
@@ -1383,7 +1395,7 @@ if "sales_data" in st.session_state:
                 ] = df
 
                 # ------------------------------------------
-                # Display result
+                # Display final result
                 # ------------------------------------------
 
                 st.divider()
