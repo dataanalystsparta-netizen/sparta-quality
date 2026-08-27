@@ -19,8 +19,8 @@ st.set_page_config(
 # CONFIG
 # ==========================================================
 
-GOOGLE_SHEET_ID = "YOUR_GOOGLE_SHEET_ID"
-SHEET_NAME = "Sheet1"
+GOOGLE_SHEET_ID = "17zEsHOOzq3G7AJg4ToH47dA8EzO36VEOdCIaiBUCzlQ"
+SHEET_NAME = "Quality Sparta"
 
 
 # ==========================================================
