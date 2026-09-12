@@ -27,7 +27,6 @@ GOOGLE_SHEET_ID = (
     "1Rk1sxO6rcJze5TTMI-7wz8x63Mw_r8qLB63Q2TPe9H4"
 )
 
-
 QA_RECORDS_SHEET = "QA Records"
 QA_ANSWERS_SHEET = "QA Answers"
 QA_PARAMETERS_SHEET = "QA Parameters"
@@ -137,8 +136,6 @@ QA_QUESTIONS = [
 # FATAL PARAMETERS
 # ==========================================================
 
-# Add parameter numbers here later.
-#
 # Example:
 # FATAL_PARAMETERS = {23, 27}
 
@@ -146,7 +143,225 @@ FATAL_PARAMETERS = set()
 
 
 # ==========================================================
-# GOOGLE SHEETS
+# SAFE VALUE
+# ==========================================================
+
+def safe_value(row, column_name):
+
+    if column_name not in row.index:
+        return ""
+
+    value = row[column_name]
+
+    if pd.isna(value):
+        return ""
+
+    return str(value).strip()
+
+
+# ==========================================================
+# TIMESTAMP
+# ==========================================================
+
+def current_timestamp():
+
+    return datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
+# ==========================================================
+# GENERATE STABLE QA ID
+# ==========================================================
+
+def generate_qa_id(row):
+
+    source = "|".join([
+        safe_value(row, "Serial_No"),
+        safe_value(row, "Sale_Date"),
+        safe_value(row, "Agent"),
+        safe_value(row, "Phone"),
+        safe_value(row, "Customer_Name")
+    ])
+
+    digest = hashlib.sha1(
+        source.encode("utf-8")
+    ).hexdigest()[:12]
+
+    return f"QA-{digest.upper()}"
+
+
+# ==========================================================
+# MAKE QA COLUMNS EDITABLE
+# ==========================================================
+
+def make_editable_dataframe(df):
+    """
+    Force the columns that we modify during QA into
+    regular Python/Pandas object columns.
+
+    This prevents Pandas Arrow/StringDtype assignment errors
+    when writing numeric scores, booleans, or mixed values.
+    """
+
+    df = df.copy()
+
+    editable_columns = [
+        "QA_ID",
+        "QA_Status",
+        "QA_Score",
+        "Fatal_Failure",
+        "Final_QA_Result",
+        "QA_Comments",
+        "Evaluator_Name",
+        "Campaign_Line",
+        "Call_Disposition",
+        "Next_Review_Date",
+        "Call_Summary",
+        "Goods",
+        "Bads",
+        "Dos",
+        "Donts",
+        "Actionable_Coaching",
+        "Created_At",
+        "Last_Updated"
+    ]
+
+    for column in editable_columns:
+
+        if column in df.columns:
+
+            # object dtype is deliberately used here
+            # because these fields can contain strings,
+            # numbers, booleans and blanks.
+            df[column] = df[column].astype(object)
+
+    return df
+
+
+# ==========================================================
+# PREPARE SALES DATAFRAME
+# ==========================================================
+
+def prepare_dataframe(df):
+
+    df = df.copy()
+
+    if "QA_ID" not in df.columns:
+
+        df["QA_ID"] = df.apply(
+            generate_qa_id,
+            axis=1
+        )
+
+    defaults = {
+        "QA_Status": "Quality Pending",
+        "QA_Score": None,
+        "Fatal_Failure": False,
+        "Final_QA_Result": "",
+        "QA_Comments": "",
+        "Evaluator_Name": "",
+        "Campaign_Line": "",
+        "Call_Disposition": "",
+        "Next_Review_Date": "",
+        "Call_Summary": "",
+        "Goods": "",
+        "Bads": "",
+        "Dos": "",
+        "Donts": "",
+        "Actionable_Coaching": "",
+        "Created_At": current_timestamp(),
+        "Last_Updated": current_timestamp()
+    }
+
+    for column, default_value in defaults.items():
+
+        if column not in df.columns:
+
+            df[column] = default_value
+
+    # Crucial fix
+    df = make_editable_dataframe(
+        df
+    )
+
+    return df
+
+
+# ==========================================================
+# SCORING
+# ==========================================================
+
+def calculate_score(answers):
+
+    applicable = [
+        answer
+        for parameter_id, answer in answers.items()
+        if isinstance(parameter_id, int)
+        and answer in ["Yes", "No"]
+    ]
+
+    if not applicable:
+
+        return 0.0
+
+    yes_count = sum(
+        1
+        for answer in applicable
+        if answer == "Yes"
+    )
+
+    return round(
+        (
+            yes_count
+            / len(applicable)
+        ) * 100,
+        2
+    )
+
+
+def has_fatal_failure(answers):
+
+    for parameter_id in FATAL_PARAMETERS:
+
+        if answers.get(
+            parameter_id
+        ) == "No":
+
+            return True
+
+    return False
+
+
+# ==========================================================
+# SALE LABEL
+# ==========================================================
+
+def sale_label(
+    df,
+    qa_id
+):
+
+    matching = df[
+        df["QA_ID"] == qa_id
+    ]
+
+    if matching.empty:
+
+        return f"QA #{qa_id}"
+
+    row = matching.iloc[0]
+
+    return (
+        f"{qa_id} — "
+        f"{safe_value(row, 'Customer_Name')} — "
+        f"Agent: {safe_value(row, 'Agent')} — "
+        f"{safe_value(row, 'QA_Status')}"
+    )
+
+
+# ==========================================================
+# GOOGLE SHEETS CLIENT
 # ==========================================================
 
 @st.cache_resource
@@ -155,17 +370,22 @@ def get_google_client():
     if "gcp_service_account" not in st.secrets:
 
         raise RuntimeError(
-            "gcp_service_account is missing from Streamlit Secrets."
+            "gcp_service_account is missing "
+            "from Streamlit Secrets."
         )
 
-    credentials = Credentials.from_service_account_info(
-        dict(
-            st.secrets["gcp_service_account"]
-        ),
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
+    credentials = (
+        Credentials.from_service_account_info(
+            dict(
+                st.secrets[
+                    "gcp_service_account"
+                ]
+            ),
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ]
+        )
     )
 
     return gspread.authorize(
@@ -183,7 +403,7 @@ def get_spreadsheet():
 
 
 # ==========================================================
-# GOOGLE SHEET HELPERS
+# GOOGLE SHEET INITIALISATION
 # ==========================================================
 
 def ensure_worksheet(
@@ -202,8 +422,11 @@ def ensure_worksheet(
 
         worksheet = spreadsheet.add_worksheet(
             title=title,
-            rows=max(1000, len(headers) + 10),
-            cols=max(50, len(headers) + 5)
+            rows=1000,
+            cols=max(
+                50,
+                len(headers) + 5
+            )
         )
 
         worksheet.update(
@@ -213,11 +436,9 @@ def ensure_worksheet(
 
         return worksheet
 
-    # If worksheet exists but is empty,
-    # initialise headers.
-    existing_values = worksheet.get_all_values()
+    existing = worksheet.get_all_values()
 
-    if not existing_values:
+    if not existing:
 
         worksheet.update(
             "A1",
@@ -269,24 +490,19 @@ def initialise_google_sheets():
     # QA Answers
     # ------------------------------------------------------
 
-    answers_headers = [
+    answer_headers = [
         "QA_ID"
-    ]
-
-    for i in range(1, 29):
-
-        answers_headers.append(
-            f"Parameter_{i}"
-        )
-
-    answers_headers += [
+    ] + [
+        f"Parameter_{i}"
+        for i in range(1, 29)
+    ] + [
         "Last_Updated"
     ]
 
     answers_ws = ensure_worksheet(
         spreadsheet,
         QA_ANSWERS_SHEET,
-        answers_headers
+        answer_headers
     )
 
     # ------------------------------------------------------
@@ -307,8 +523,9 @@ def initialise_google_sheets():
         parameter_headers
     )
 
-    # Populate parameters if blank
-    parameter_values = parameters_ws.get_all_values()
+    parameter_values = (
+        parameters_ws.get_all_values()
+    )
 
     if len(parameter_values) <= 1:
 
@@ -322,9 +539,12 @@ def initialise_google_sheets():
             rows.append([
                 parameter_id,
                 question,
-                "Yes"
-                if parameter_id in FATAL_PARAMETERS
-                else "No",
+                (
+                    "Yes"
+                    if parameter_id
+                    in FATAL_PARAMETERS
+                    else "No"
+                ),
                 1,
                 "Yes"
             ])
@@ -367,361 +587,6 @@ def initialise_google_sheets():
 
 
 # ==========================================================
-# GENERATE STABLE QA ID
-# ==========================================================
-
-def generate_qa_id(row):
-
-    source = "|".join([
-        safe_value(row, "Serial_No"),
-        safe_value(row, "Sale_Date"),
-        safe_value(row, "Agent"),
-        safe_value(row, "Phone"),
-        safe_value(row, "Customer_Name")
-    ])
-
-    digest = hashlib.sha1(
-        source.encode(
-            "utf-8"
-        )
-    ).hexdigest()[:12]
-
-    return (
-        "QA-"
-        + digest.upper()
-    )
-
-
-# ==========================================================
-# SAFE VALUE
-# ==========================================================
-
-def safe_value(
-    row,
-    column_name
-):
-
-    if column_name not in row.index:
-
-        return ""
-
-    value = row[column_name]
-
-    if pd.isna(value):
-
-        return ""
-
-    return str(value).strip()
-
-
-# ==========================================================
-# TIMESTAMP
-# ==========================================================
-
-def current_timestamp():
-
-    return datetime.now().strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
-
-
-# ==========================================================
-# SCORING
-# ==========================================================
-
-def calculate_score(answers):
-
-    applicable = [
-        answer
-        for answer in answers.values()
-        if answer in ["Yes", "No"]
-    ]
-
-    if not applicable:
-
-        return 0.0
-
-    yes_count = sum(
-        1
-        for answer in applicable
-        if answer == "Yes"
-    )
-
-    return round(
-        (
-            yes_count
-            / len(applicable)
-        )
-        * 100,
-        2
-    )
-
-
-def has_fatal_failure(answers):
-
-    for parameter_id in FATAL_PARAMETERS:
-
-        if answers.get(
-            parameter_id
-        ) == "No":
-
-            return True
-
-    return False
-
-
-# ==========================================================
-# SALE LABEL
-# ==========================================================
-
-def sale_label(
-    df,
-    qa_id
-):
-
-    matching = df[
-        df["QA_ID"] == qa_id
-    ]
-
-    if matching.empty:
-
-        return (
-            f"QA #{qa_id}"
-        )
-
-    row = matching.iloc[0]
-
-    return (
-        f"{qa_id} — "
-        f"{safe_value(row, 'Customer_Name')} — "
-        f"{safe_value(row, 'Agent')} — "
-        f"{safe_value(row, 'QA_Status')}"
-    )
-
-
-# ==========================================================
-# CONVERT DATAFRAME ROW TO GOOGLE SHEETS ROW
-# ==========================================================
-
-def row_to_records_values(row):
-
-    values = []
-
-    for column in COLUMN_NAMES:
-
-        values.append(
-            safe_value(
-                row,
-                column
-            )
-        )
-
-    values.extend([
-        safe_value(row, "QA_ID"),
-        safe_value(row, "QA_Status"),
-        safe_value(row, "QA_Score"),
-        safe_value(row, "Fatal_Failure"),
-        safe_value(row, "Final_QA_Result"),
-        safe_value(row, "QA_Comments"),
-        safe_value(row, "Evaluator_Name"),
-        safe_value(row, "Campaign_Line"),
-        safe_value(row, "Call_Disposition"),
-        safe_value(row, "Next_Review_Date"),
-        safe_value(row, "Call_Summary"),
-        safe_value(row, "Goods"),
-        safe_value(row, "Bads"),
-        safe_value(row, "Dos"),
-        safe_value(row, "Donts"),
-        safe_value(row, "Actionable_Coaching"),
-        safe_value(row, "Created_At"),
-        safe_value(row, "Last_Updated")
-    ])
-
-    return values
-
-
-# ==========================================================
-# ENSURE DATAFRAME HAS QA / REPORT COLUMNS
-# ==========================================================
-
-def prepare_dataframe(df):
-
-    if "QA_ID" not in df.columns:
-
-        df["QA_ID"] = df.apply(
-            generate_qa_id,
-            axis=1
-        )
-
-    default_columns = {
-        "QA_Status": "Quality Pending",
-        "QA_Score": "",
-        "Fatal_Failure": False,
-        "Final_QA_Result": "",
-        "QA_Comments": "",
-        "Evaluator_Name": "",
-        "Campaign_Line": "",
-        "Call_Disposition": "",
-        "Next_Review_Date": "",
-        "Call_Summary": "",
-        "Goods": "",
-        "Bads": "",
-        "Dos": "",
-        "Donts": "",
-        "Actionable_Coaching": "",
-        "Created_At": current_timestamp(),
-        "Last_Updated": current_timestamp()
-    }
-
-    for column, default in default_columns.items():
-
-        if column not in df.columns:
-
-            df[column] = default
-
-    return df
-
-
-# ==========================================================
-# FIND ROW BY QA ID
-# ==========================================================
-
-def find_google_row(
-    worksheet,
-    qa_id
-):
-
-    records = worksheet.get_all_records()
-
-    for index, record in enumerate(
-        records,
-        start=2
-    ):
-
-        if str(
-            record.get("QA_ID", "")
-        ).strip() == str(qa_id).strip():
-
-            return index
-
-    return None
-
-
-# ==========================================================
-# SAVE ONE SALE TO GOOGLE SHEETS
-# ==========================================================
-
-def save_sale_to_google(
-    sale_row,
-    answers
-):
-
-    sheets = initialise_google_sheets()
-
-    records_ws = sheets["records"]
-    answers_ws = sheets["answers"]
-
-    qa_id = safe_value(
-        sale_row,
-        "QA_ID"
-    )
-
-    # ------------------------------------------------------
-    # Timestamp
-    # ------------------------------------------------------
-
-    updated_at = current_timestamp()
-
-    sale_row = sale_row.copy()
-
-    sale_row["Last_Updated"] = updated_at
-
-    # ------------------------------------------------------
-    # QA Answers
-    # ------------------------------------------------------
-
-    answer_values = [
-        qa_id
-    ]
-
-    for parameter_id in range(
-        1,
-        29
-    ):
-
-        answer_values.append(
-            answers.get(
-                parameter_id,
-                "Yes"
-            )
-        )
-
-    answer_values.append(
-        updated_at
-    )
-
-    # ------------------------------------------------------
-    # Find existing QA Records row
-    # ------------------------------------------------------
-
-    record_row = find_google_row(
-        records_ws,
-        qa_id
-    )
-
-    record_values = row_to_records_values(
-        sale_row
-    )
-
-    # ------------------------------------------------------
-    # Update or append QA Record
-    # ------------------------------------------------------
-
-    if record_row:
-
-        end_column = len(
-            record_values
-        )
-
-        records_ws.update(
-            f"A{record_row}:{column_letter(end_column)}{record_row}",
-            [record_values],
-            value_input_option="USER_ENTERED"
-        )
-
-    else:
-
-        records_ws.append_row(
-            record_values,
-            value_input_option="USER_ENTERED"
-        )
-
-    # ------------------------------------------------------
-    # QA Answers
-    # ------------------------------------------------------
-
-    answer_row = find_google_row(
-        answers_ws,
-        qa_id
-    )
-
-    if answer_row:
-
-        answers_ws.update(
-            f"A{answer_row}:{column_letter(len(answer_values))}{answer_row}",
-            [answer_values],
-            value_input_option="USER_ENTERED"
-        )
-
-    else:
-
-        answers_ws.append_row(
-            answer_values,
-            value_input_option="USER_ENTERED"
-        )
-
-
-# ==========================================================
 # COLUMN LETTER
 # ==========================================================
 
@@ -747,6 +612,217 @@ def column_letter(number):
 
 
 # ==========================================================
+# FIND GOOGLE SHEET ROW BY QA ID
+# ==========================================================
+
+def find_google_row(
+    worksheet,
+    qa_id
+):
+
+    records = (
+        worksheet.get_all_records()
+    )
+
+    for index, record in enumerate(
+        records,
+        start=2
+    ):
+
+        if str(
+            record.get(
+                "QA_ID",
+                ""
+            )
+        ).strip() == str(
+            qa_id
+        ).strip():
+
+            return index
+
+    return None
+
+
+# ==========================================================
+# CONVERT SALE ROW TO GOOGLE VALUES
+# ==========================================================
+
+def row_to_records_values(row):
+
+    values = []
+
+    for column in COLUMN_NAMES:
+
+        values.append(
+            safe_value(
+                row,
+                column
+            )
+        )
+
+    fields = [
+        "QA_ID",
+        "QA_Status",
+        "QA_Score",
+        "Fatal_Failure",
+        "Final_QA_Result",
+        "QA_Comments",
+        "Evaluator_Name",
+        "Campaign_Line",
+        "Call_Disposition",
+        "Next_Review_Date",
+        "Call_Summary",
+        "Goods",
+        "Bads",
+        "Dos",
+        "Donts",
+        "Actionable_Coaching",
+        "Created_At",
+        "Last_Updated"
+    ]
+
+    for field in fields:
+
+        value = (
+            row[field]
+            if field in row.index
+            else ""
+        )
+
+        if pd.isna(value):
+
+            value = ""
+
+        if isinstance(
+            value,
+            bool
+        ):
+
+            value = (
+                "TRUE"
+                if value
+                else "FALSE"
+            )
+
+        values.append(
+            str(value)
+        )
+
+    return values
+
+
+# ==========================================================
+# SAVE ONE SALE TO GOOGLE SHEETS
+# ==========================================================
+
+def save_sale_to_google(
+    sale_row,
+    answers
+):
+
+    sheets = initialise_google_sheets()
+
+    records_ws = sheets[
+        "records"
+    ]
+
+    answers_ws = sheets[
+        "answers"
+    ]
+
+    qa_id = safe_value(
+        sale_row,
+        "QA_ID"
+    )
+
+    updated_at = current_timestamp()
+
+    sale_row = sale_row.copy()
+
+    sale_row["Last_Updated"] = (
+        updated_at
+    )
+
+    # ------------------------------------------------------
+    # QA Records
+    # ------------------------------------------------------
+
+    record_values = (
+        row_to_records_values(
+            sale_row
+        )
+    )
+
+    record_row = find_google_row(
+        records_ws,
+        qa_id
+    )
+
+    if record_row:
+
+        records_ws.update(
+            f"A{record_row}:"
+            f"{column_letter(len(record_values))}"
+            f"{record_row}",
+            [record_values],
+            value_input_option="USER_ENTERED"
+        )
+
+    else:
+
+        records_ws.append_row(
+            record_values,
+            value_input_option="USER_ENTERED"
+        )
+
+    # ------------------------------------------------------
+    # QA Answers
+    # ------------------------------------------------------
+
+    answer_values = [
+        qa_id
+    ]
+
+    for parameter_id in range(
+        1,
+        29
+    ):
+
+        answer_values.append(
+            answers.get(
+                parameter_id,
+                "Yes"
+            )
+        )
+
+    answer_values.append(
+        updated_at
+    )
+
+    answer_row = find_google_row(
+        answers_ws,
+        qa_id
+    )
+
+    if answer_row:
+
+        answers_ws.update(
+            f"A{answer_row}:"
+            f"{column_letter(len(answer_values))}"
+            f"{answer_row}",
+            [answer_values],
+            value_input_option="USER_ENTERED"
+        )
+
+    else:
+
+        answers_ws.append_row(
+            answer_values,
+            value_input_option="USER_ENTERED"
+        )
+
+
+# ==========================================================
 # SYNC FROM GOOGLE SHEET
 # ==========================================================
 
@@ -754,36 +830,60 @@ def sync_from_google():
 
     sheets = initialise_google_sheets()
 
-    records_ws = sheets["records"]
-    answers_ws = sheets["answers"]
+    records_ws = sheets[
+        "records"
+    ]
+
+    answers_ws = sheets[
+        "answers"
+    ]
 
     # ------------------------------------------------------
-    # Read QA Records
+    # Records
     # ------------------------------------------------------
 
-    records = records_ws.get_all_records()
+    records = (
+        records_ws.get_all_records()
+    )
 
     if not records:
 
-        return None, 0
+        return None, {}
 
     records_df = pd.DataFrame(
         records
     )
 
     # ------------------------------------------------------
-    # Convert score
+    # Make sure every expected column exists
+    # ------------------------------------------------------
+
+    for column in COLUMN_NAMES:
+
+        if column not in records_df.columns:
+
+            records_df[column] = ""
+
+    records_df = prepare_dataframe(
+        records_df
+    )
+
+    # ------------------------------------------------------
+    # Convert scores safely
     # ------------------------------------------------------
 
     if "QA_Score" in records_df.columns:
 
-        records_df["QA_Score"] = pd.to_numeric(
-            records_df["QA_Score"],
-            errors="coerce"
+        records_df["QA_Score"] = (
+            pd.to_numeric(
+                records_df["QA_Score"],
+                errors="coerce"
+            )
+            .astype(object)
         )
 
     # ------------------------------------------------------
-    # Convert fatal
+    # Fatal failure
     # ------------------------------------------------------
 
     if "Fatal_Failure" in records_df.columns:
@@ -793,14 +893,15 @@ def sync_from_google():
                 "Fatal_Failure"
             ]
             .astype(str)
-            .str.lower()
+            .str.upper()
             .isin(
                 [
-                    "true",
-                    "yes",
+                    "TRUE",
+                    "YES",
                     "1"
                 ]
             )
+            .astype(object)
         )
 
     # ------------------------------------------------------
@@ -833,22 +934,22 @@ def sync_from_google():
             29
         ):
 
-            value = record.get(
+            answer = record.get(
                 f"Parameter_{parameter_id}",
                 "Yes"
             )
 
-            if value not in [
+            if answer not in [
                 "Yes",
                 "No",
                 "N/A"
             ]:
 
-                value = "Yes"
+                answer = "Yes"
 
             answers[
                 parameter_id
-            ] = value
+            ] = answer
 
         qa_answers[
             qa_id
@@ -861,7 +962,7 @@ def sync_from_google():
 
 
 # ==========================================================
-# UPDATE AGENT SUMMARY SHEET
+# AGENT SUMMARY
 # ==========================================================
 
 def update_agent_summary(df):
@@ -877,90 +978,6 @@ def update_agent_summary(df):
         == "Completed"
     ].copy()
 
-    if completed.empty:
-
-        summary = pd.DataFrame(
-            columns=[
-                "Agent",
-                "Sales Checked",
-                "Average QA Score",
-                "Approved",
-                "Rejected",
-                "Cancelled",
-                "Reworked Required",
-                "Hold",
-                "Fatal Failures"
-            ]
-        )
-
-    else:
-
-        grouped = []
-
-        for agent, group in completed.groupby(
-            "Agent",
-            dropna=False
-        ):
-
-            scores = pd.to_numeric(
-                group["QA_Score"],
-                errors="coerce"
-            )
-
-            grouped.append({
-                "Agent": str(agent),
-                "Sales Checked": len(group),
-                "Average QA Score": round(
-                    scores.mean()
-                    if scores.notna().any()
-                    else 0,
-                    2
-                ),
-                "Approved": int(
-                    (
-                        group["Final_QA_Result"]
-                        == "Approved"
-                    ).sum()
-                ),
-                "Rejected": int(
-                    (
-                        group["Final_QA_Result"]
-                        == "Rejected"
-                    ).sum()
-                ),
-                "Cancelled": int(
-                    (
-                        group["Final_QA_Result"]
-                        == "Cancelled"
-                    ).sum()
-                ),
-                "Reworked Required": int(
-                    (
-                        group["Final_QA_Result"]
-                        == "Reworked Required"
-                    ).sum()
-                ),
-                "Hold": int(
-                    (
-                        group["Final_QA_Result"]
-                        == "Hold"
-                    ).sum()
-                ),
-                "Fatal Failures": int(
-                    group["Fatal_Failure"].sum()
-                )
-            })
-
-        summary = pd.DataFrame(
-            grouped
-        )
-
-    # ------------------------------------------------------
-    # Replace contents
-    # ------------------------------------------------------
-
-    worksheet.clear()
-
     headers = [
         "Agent",
         "Sales Checked",
@@ -973,15 +990,83 @@ def update_agent_summary(df):
         "Fatal Failures"
     ]
 
+    if completed.empty:
+
+        summary = []
+
+    else:
+
+        summary = []
+
+        for agent, group in completed.groupby(
+            "Agent",
+            dropna=False
+        ):
+
+            group_scores = pd.to_numeric(
+                group["QA_Score"],
+                errors="coerce"
+            )
+
+            average_score = (
+                group_scores.mean()
+                if group_scores.notna().any()
+                else 0
+            )
+
+            summary.append([
+                str(agent),
+                len(group),
+                round(
+                    average_score,
+                    2
+                ),
+                int(
+                    (
+                        group["Final_QA_Result"]
+                        == "Approved"
+                    ).sum()
+                ),
+                int(
+                    (
+                        group["Final_QA_Result"]
+                        == "Rejected"
+                    ).sum()
+                ),
+                int(
+                    (
+                        group["Final_QA_Result"]
+                        == "Cancelled"
+                    ).sum()
+                ),
+                int(
+                    (
+                        group["Final_QA_Result"]
+                        == "Reworked Required"
+                    ).sum()
+                ),
+                int(
+                    (
+                        group["Final_QA_Result"]
+                        == "Hold"
+                    ).sum()
+                ),
+                int(
+                    group["Fatal_Failure"].sum()
+                )
+            ])
+
+    worksheet.clear()
+
     worksheet.update(
         "A1",
         [headers]
     )
 
-    if not summary.empty:
+    if summary:
 
         worksheet.append_rows(
-            summary.astype(str).values.tolist(),
+            summary,
             value_input_option="USER_ENTERED"
         )
 
@@ -996,10 +1081,6 @@ def create_excel_download(
 ):
 
     output = BytesIO()
-
-    # ------------------------------------------------------
-    # Results
-    # ------------------------------------------------------
 
     result_columns = [
         "QA_ID",
@@ -1035,7 +1116,7 @@ def create_excel_download(
     ].copy()
 
     # ------------------------------------------------------
-    # Detailed
+    # Detailed sheet
     # ------------------------------------------------------
 
     detailed_rows = []
@@ -1049,7 +1130,7 @@ def create_excel_download(
             {}
         )
 
-        detailed_row = {
+        detail = {
             "QA_ID": qa_id,
             "Sale_Date": safe_value(
                 row,
@@ -1098,7 +1179,7 @@ def create_excel_download(
             29
         ):
 
-            detailed_row[
+            detail[
                 f"Parameter_{parameter_id}"
             ] = answers.get(
                 parameter_id,
@@ -1106,7 +1187,7 @@ def create_excel_download(
             )
 
         detailed_rows.append(
-            detailed_row
+            detail
         )
 
     detailed_df = pd.DataFrame(
@@ -1114,7 +1195,7 @@ def create_excel_download(
     )
 
     # ------------------------------------------------------
-    # Write
+    # Write workbook
     # ------------------------------------------------------
 
     with pd.ExcelWriter(
@@ -1240,7 +1321,7 @@ st.title(
 )
 
 st.caption(
-    "Sales QA, persistent Google Sheet backup, "
+    "Sales QA, Google Sheet backup, "
     "agent performance and reporting."
 )
 
@@ -1265,12 +1346,8 @@ with st.expander(
 
             try:
 
-                sync_result = (
-                    sync_from_google()
-                )
-
                 records_df, synced_answers = (
-                    sync_result
+                    sync_from_google()
                 )
 
                 if records_df is None:
@@ -1281,6 +1358,12 @@ with st.expander(
 
                 else:
 
+                    records_df = (
+                        make_editable_dataframe(
+                            records_df
+                        )
+                    )
+
                     st.session_state[
                         "sales_data"
                     ] = records_df
@@ -1290,8 +1373,9 @@ with st.expander(
                     ] = synced_answers
 
                     st.success(
-                        f"Synced {len(records_df):,} "
-                        "QA records from Google Sheets."
+                        f"Synced "
+                        f"{len(records_df):,} "
+                        f"records from Google Sheets."
                     )
 
                     st.rerun()
@@ -1307,8 +1391,8 @@ with st.expander(
     with col2:
 
         st.write(
-            "Google Sheet contains the persistent "
-            "QA Records and QA Answers."
+            "Google Sheets is the persistent "
+            "QA backup and synchronization store."
         )
 
 
@@ -1351,17 +1435,21 @@ if uploaded_file is not None:
             st.stop()
 
         # --------------------------------------------------
-        # Names
+        # Apply names
         # --------------------------------------------------
 
         df.columns = COLUMN_NAMES
 
-        # Remove blank rows
         df = df.dropna(
             how="all"
-        ).reset_index(drop=True)
+        ).reset_index(
+            drop=True
+        )
 
-        # Prepare
+        # --------------------------------------------------
+        # Prepare QA data
+        # --------------------------------------------------
+
         df = prepare_dataframe(
             df
         )
@@ -1375,6 +1463,10 @@ if uploaded_file is not None:
             + "_"
             + str(len(df))
         )
+
+        # --------------------------------------------------
+        # New upload
+        # --------------------------------------------------
 
         if st.session_state.get(
             "uploaded_file_key"
@@ -1407,16 +1499,25 @@ if uploaded_file is not None:
 
 
 # ==========================================================
-# MAIN APP
+# MAIN APPLICATION
 # ==========================================================
 
 if st.session_state[
     "sales_data"
 ] is not None:
 
-    df = st.session_state[
+    df = (
+        make_editable_dataframe(
+            st.session_state[
+                "sales_data"
+            ]
+        )
+    )
+
+    # Keep session version synchronized
+    st.session_state[
         "sales_data"
-    ]
+    ] = df
 
     # ======================================================
     # DASHBOARD
@@ -1526,13 +1627,15 @@ if st.session_state[
 
     with col2:
 
+        statuses = [
+            "All",
+            "Quality Pending",
+            "Completed"
+        ]
+
         selected_status = st.selectbox(
             "QA Status",
-            [
-                "All",
-                "Quality Pending",
-                "Completed"
-            ]
+            statuses
         )
 
     if selected_status != "All":
@@ -1557,7 +1660,7 @@ if st.session_state[
         ]
 
     # ======================================================
-    # SELECT SALE
+    # SALE SELECTION
     # ======================================================
 
     st.divider()
@@ -1574,9 +1677,12 @@ if st.session_state[
 
     else:
 
-        sale_options = filtered_df[
-            "QA_ID"
-        ].tolist()
+        sale_options = (
+            filtered_df[
+                "QA_ID"
+            ]
+            .tolist()
+        )
 
         selected_qa_id = st.selectbox(
             "Sale",
@@ -1612,12 +1718,11 @@ if st.session_state[
             "Sale Details"
         )
 
+        # Row 1
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-
             st.caption("Customer")
-
             st.write(
                 safe_value(
                     sale,
@@ -1626,9 +1731,7 @@ if st.session_state[
             )
 
         with col2:
-
             st.caption("Phone")
-
             st.write(
                 safe_value(
                     sale,
@@ -1637,9 +1740,7 @@ if st.session_state[
             )
 
         with col3:
-
             st.caption("Agent")
-
             st.write(
                 safe_value(
                     sale,
@@ -1648,9 +1749,7 @@ if st.session_state[
             )
 
         with col4:
-
             st.caption("Verifier")
-
             st.write(
                 safe_value(
                     sale,
@@ -1658,12 +1757,11 @@ if st.session_state[
                 )
             )
 
+        # Row 2
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-
             st.caption("Sale Date")
-
             st.write(
                 safe_value(
                     sale,
@@ -1672,9 +1770,7 @@ if st.session_state[
             )
 
         with col2:
-
             st.caption("Current Provider")
-
             st.write(
                 safe_value(
                     sale,
@@ -1683,9 +1779,7 @@ if st.session_state[
             )
 
         with col3:
-
             st.caption("Broadband Type")
-
             st.write(
                 safe_value(
                     sale,
@@ -1694,9 +1788,7 @@ if st.session_state[
             )
 
         with col4:
-
             st.caption("Payment Method")
-
             st.write(
                 safe_value(
                     sale,
@@ -1704,12 +1796,11 @@ if st.session_state[
                 )
             )
 
+        # Row 3
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-
             st.caption("Package")
-
             st.write(
                 safe_value(
                     sale,
@@ -1718,9 +1809,7 @@ if st.session_state[
             )
 
         with col2:
-
             st.caption("Service")
-
             st.write(
                 safe_value(
                     sale,
@@ -1729,9 +1818,7 @@ if st.session_state[
             )
 
         with col3:
-
             st.caption("Router Charges")
-
             st.write(
                 safe_value(
                     sale,
@@ -1740,9 +1827,7 @@ if st.session_state[
             )
 
         with col4:
-
             st.caption("Contract Duration")
-
             st.write(
                 safe_value(
                     sale,
@@ -1750,14 +1835,11 @@ if st.session_state[
                 )
             )
 
+        # Row 4
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-
-            st.caption(
-                "1471 / 1571"
-            )
-
+            st.caption("1471 / 1571")
             st.write(
                 safe_value(
                     sale,
@@ -1766,11 +1848,7 @@ if st.session_state[
             )
 
         with col2:
-
-            st.caption(
-                "Bill / Cost"
-            )
-
+            st.caption("Bill / Cost")
             st.write(
                 safe_value(
                     sale,
@@ -1779,11 +1857,7 @@ if st.session_state[
             )
 
         with col3:
-
-            st.caption(
-                "Payment Frequency"
-            )
-
+            st.caption("Payment Frequency")
             st.write(
                 safe_value(
                     sale,
@@ -1792,11 +1866,7 @@ if st.session_state[
             )
 
         with col4:
-
-            st.caption(
-                "Lead Source"
-            )
-
+            st.caption("Lead Source")
             st.write(
                 safe_value(
                     sale,
@@ -1804,6 +1874,7 @@ if st.session_state[
                 )
             )
 
+        # Address
         st.caption(
             "Customer Address"
         )
@@ -1815,6 +1886,7 @@ if st.session_state[
             )
         )
 
+        # Additional notes
         notes = safe_value(
             sale,
             "Additional_Notes"
@@ -1831,7 +1903,7 @@ if st.session_state[
             )
 
         # ==================================================
-        # EXISTING ANSWERS
+        # LOAD EXISTING ANSWERS
         # ==================================================
 
         current_answers = (
@@ -1844,7 +1916,7 @@ if st.session_state[
         )
 
         # ==================================================
-        # CHECKLIST
+        # QUALITY CHECKLIST
         # ==================================================
 
         st.divider()
@@ -1867,6 +1939,10 @@ if st.session_state[
         ):
 
             answers = {}
+
+            # --------------------------------------------------
+            # 28 parameters
+            # --------------------------------------------------
 
             for parameter_id, question in enumerate(
                 QA_QUESTIONS,
@@ -2057,7 +2133,7 @@ if st.session_state[
             )
 
             # ==================================================
-            # FINAL DECISION
+            # FINAL QA DECISION
             # ==================================================
 
             st.divider()
@@ -2093,10 +2169,6 @@ if st.session_state[
                 final_result_options,
                 index=final_index
             )
-
-            # ==================================================
-            # COMMENTS
-            # ==================================================
 
             comments = st.text_area(
                 "QA Comments",
@@ -2144,7 +2216,6 @@ if st.session_state[
 
             answers["comments"] = comments
 
-            # Store report fields
             answers["evaluator_name"] = (
                 evaluator_name
             )
@@ -2179,7 +2250,6 @@ if st.session_state[
                 "qa_answers"
             ][selected_qa_id] = answers
 
-            # Calculate score
             score = calculate_score(
                 answers
             )
@@ -2188,29 +2258,34 @@ if st.session_state[
                 answers
             )
 
-            # Update dataframe
-            df.loc[
+            # IMPORTANT:
+            # explicitly force editable object dtype
+            df = make_editable_dataframe(
+                df
+            )
+
+            mask = (
                 df["QA_ID"]
-                == selected_qa_id,
+                == selected_qa_id
+            )
+
+            df.loc[
+                mask,
                 "QA_Score"
             ] = score
 
             df.loc[
-                df["QA_ID"]
-                == selected_qa_id,
+                mask,
                 "Fatal_Failure"
             ] = fatal_failure
 
             df.loc[
-                df["QA_ID"]
-                == selected_qa_id,
+                mask,
                 "QA_Comments"
             ] = comments
 
-            # Keep pending
             df.loc[
-                df["QA_ID"]
-                == selected_qa_id,
+                mask,
                 "QA_Status"
             ] = "Quality Pending"
 
@@ -2232,47 +2307,50 @@ if st.session_state[
             for column, value in report_values.items():
 
                 df.loc[
-                    df["QA_ID"]
-                    == selected_qa_id,
+                    mask,
                     column
                 ] = value
 
             st.session_state[
                 "sales_data"
-            ] = df
+            ] = make_editable_dataframe(
+                df
+            )
 
             # --------------------------------------------------
-            # Google Sheet
+            # Google save
             # --------------------------------------------------
 
             try:
 
-                sale_to_save = df[
-                    df["QA_ID"]
-                    == selected_qa_id
-                ].iloc[0]
+                sale_to_save = (
+                    df[
+                        mask
+                    ]
+                    .iloc[0]
+                    .copy()
+                )
 
                 save_sale_to_google(
                     sale_to_save,
                     answers
                 )
 
-                st.success(
-                    "Progress saved locally "
-                    "and to Google Sheets."
-                )
-
-                # Update Google summary
                 update_agent_summary(
                     df
+                )
+
+                st.success(
+                    "Progress saved successfully "
+                    "to Google Sheets."
                 )
 
             except Exception as e:
 
                 st.warning(
                     "Progress was saved in the "
-                    "current app session, but Google "
-                    "Sheet synchronization failed."
+                    "current app session, but the "
+                    "Google Sheet update failed."
                 )
 
                 st.exception(e)
@@ -2292,7 +2370,7 @@ if st.session_state[
 
             else:
 
-                # Save all answers
+                # Save answers
                 answers[
                     "final_result"
                 ] = final_result
@@ -2345,7 +2423,6 @@ if st.session_state[
                     "qa_answers"
                 ][selected_qa_id] = answers
 
-                # Calculate
                 score = calculate_score(
                     answers
                 )
@@ -2354,38 +2431,49 @@ if st.session_state[
                     answers
                 )
 
-                # Update dataframe
-                df.loc[
+                # Force editable dtype before assignments
+                df = make_editable_dataframe(
+                    df
+                )
+
+                mask = (
                     df["QA_ID"]
-                    == selected_qa_id,
+                    == selected_qa_id
+                )
+
+                # --------------------------------------------------
+                # Update QA result
+                # --------------------------------------------------
+
+                df.loc[
+                    mask,
                     "QA_Status"
                 ] = "Completed"
 
                 df.loc[
-                    df["QA_ID"]
-                    == selected_qa_id,
+                    mask,
                     "QA_Score"
                 ] = score
 
                 df.loc[
-                    df["QA_ID"]
-                    == selected_qa_id,
+                    mask,
                     "Fatal_Failure"
                 ] = fatal_failure
 
                 df.loc[
-                    df["QA_ID"]
-                    == selected_qa_id,
+                    mask,
                     "Final_QA_Result"
                 ] = final_result
 
                 df.loc[
-                    df["QA_ID"]
-                    == selected_qa_id,
+                    mask,
                     "QA_Comments"
                 ] = comments
 
+                # --------------------------------------------------
                 # Report fields
+                # --------------------------------------------------
+
                 report_values = {
                     "Evaluator_Name": evaluator_name,
                     "Campaign_Line": campaign_line,
@@ -2403,25 +2491,31 @@ if st.session_state[
                 for column, value in report_values.items():
 
                     df.loc[
-                        df["QA_ID"]
-                        == selected_qa_id,
+                        mask,
                         column
                     ] = value
 
                 st.session_state[
                     "sales_data"
-                ] = df
+                ] = make_editable_dataframe(
+                    df
+                )
 
                 # --------------------------------------------------
                 # Google save
                 # --------------------------------------------------
 
+                google_saved = False
+
                 try:
 
-                    sale_to_save = df[
-                        df["QA_ID"]
-                        == selected_qa_id
-                    ].iloc[0]
+                    sale_to_save = (
+                        df[
+                            mask
+                        ]
+                        .iloc[0]
+                        .copy()
+                    )
 
                     save_sale_to_google(
                         sale_to_save,
@@ -2436,17 +2530,15 @@ if st.session_state[
 
                 except Exception as e:
 
-                    google_saved = False
-
                     st.warning(
-                        "QA was completed in the current "
-                        "session, but Google Sheet save failed."
+                        "QA was completed in the app, "
+                        "but the Google Sheet save failed."
                     )
 
                     st.exception(e)
 
                 # --------------------------------------------------
-                # Result
+                # Result display
                 # --------------------------------------------------
 
                 st.divider()
@@ -2540,10 +2632,6 @@ if st.session_state[
             completed_df["QA_Score"],
             errors="coerce"
         )
-
-        # --------------------------------------------------
-        # Overall metrics
-        # --------------------------------------------------
 
         col1, col2, col3, col4 = st.columns(4)
 
@@ -2688,11 +2776,7 @@ if st.session_state[
     ]
 
     results_df = df[
-        [
-            column
-            for column in result_columns
-            if column in df.columns
-        ]
+        result_columns
     ].copy()
 
     st.dataframe(
@@ -2702,7 +2786,7 @@ if st.session_state[
     )
 
     # ======================================================
-    # EXCEL EXPORT
+    # EXPORT
     # ======================================================
 
     st.divider()
