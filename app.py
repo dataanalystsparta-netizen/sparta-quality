@@ -5,6 +5,7 @@ import hashlib
 
 from io import BytesIO
 from datetime import datetime
+
 from google.oauth2.service_account import Credentials
 
 
@@ -163,11 +164,10 @@ QA_QUESTIONS = [
 # FATAL PARAMETERS
 # ==========================================================
 #
-# Add parameter numbers here when finalized.
+# Put parameter numbers here once the fatal list is finalized.
 #
 # Example:
-#
-# FATAL_PARAMETERS = {23, 27}
+# FATAL_PARAMETERS = {3, 23, 27}
 #
 # ==========================================================
 
@@ -187,6 +187,15 @@ if "qa_answers" not in st.session_state:
 if "uploaded_file_key" not in st.session_state:
     st.session_state["uploaded_file_key"] = None
 
+if "dashboard_df" not in st.session_state:
+    st.session_state["dashboard_df"] = None
+
+if "dashboard_answers" not in st.session_state:
+    st.session_state["dashboard_answers"] = {}
+
+if "dashboard_loaded" not in st.session_state:
+    st.session_state["dashboard_loaded"] = False
+
 
 # ==========================================================
 # BASIC HELPERS
@@ -194,7 +203,7 @@ if "uploaded_file_key" not in st.session_state:
 
 def safe_value(row, column_name):
     """
-    Safely retrieve a field from a pandas row.
+    Safely retrieve a value from a pandas row.
     """
 
     if column_name not in row.index:
@@ -216,7 +225,8 @@ def current_timestamp():
 
 def make_editable_dataframe(df):
     """
-    Prevent Pandas Arrow/string dtype assignment errors.
+    Force writable QA/report columns to object dtype.
+    This avoids Pandas dtype assignment problems.
     """
 
     df = df.copy()
@@ -245,6 +255,7 @@ def make_editable_dataframe(df):
     for column in editable_columns:
 
         if column in df.columns:
+
             df[column] = df[column].astype(object)
 
     return df
@@ -256,7 +267,7 @@ def make_editable_dataframe(df):
 
 def generate_qa_id(row):
     """
-    Generate a stable ID from identifying sale information.
+    Stable QA ID based on core sale details.
     """
 
     source = "|".join([
@@ -275,7 +286,7 @@ def generate_qa_id(row):
 
 
 # ==========================================================
-# PREPARE DATAFRAME
+# DATAFRAME PREPARATION
 # ==========================================================
 
 def prepare_dataframe(df):
@@ -312,6 +323,7 @@ def prepare_dataframe(df):
     for column, default_value in defaults.items():
 
         if column not in df.columns:
+
             df[column] = default_value
 
     return make_editable_dataframe(df)
@@ -323,26 +335,33 @@ def prepare_dataframe(df):
 
 def calculate_score(answers):
 
-    applicable = []
+    applicable_answers = []
 
     for key, answer in answers.items():
 
         if isinstance(key, int):
 
-            if answer in ["Yes", "No"]:
-                applicable.append(answer)
+            if answer in [
+                "Yes",
+                "No"
+            ]:
 
-    if not applicable:
+                applicable_answers.append(
+                    answer
+                )
+
+    if not applicable_answers:
+
         return 0.0
 
     yes_count = sum(
         answer == "Yes"
-        for answer in applicable
+        for answer in applicable_answers
     )
 
     return round(
         yes_count
-        / len(applicable)
+        / len(applicable_answers)
         * 100,
         2
     )
@@ -352,14 +371,17 @@ def has_fatal_failure(answers):
 
     for parameter_id in FATAL_PARAMETERS:
 
-        if answers.get(parameter_id) == "No":
+        if answers.get(
+            parameter_id
+        ) == "No":
+
             return True
 
     return False
 
 
 # ==========================================================
-# GOOGLE SHEETS CONNECTION
+# GOOGLE CONNECTION
 # ==========================================================
 
 @st.cache_resource
@@ -399,7 +421,7 @@ def get_spreadsheet():
 
 
 # ==========================================================
-# GOOGLE SHEET HELPERS
+# GOOGLE SHEET INITIALISATION
 # ==========================================================
 
 def ensure_worksheet(
@@ -432,9 +454,9 @@ def ensure_worksheet(
 
         return worksheet
 
-    current = worksheet.get_all_values()
+    current_values = worksheet.get_all_values()
 
-    if not current:
+    if not current_values:
 
         worksheet.update(
             "A1",
@@ -449,7 +471,7 @@ def initialise_google_sheets():
     spreadsheet = get_spreadsheet()
 
     # ------------------------------------------------------
-    # QA Records
+    # QA RECORDS
     # ------------------------------------------------------
 
     records_headers = (
@@ -483,7 +505,7 @@ def initialise_google_sheets():
     )
 
     # ------------------------------------------------------
-    # QA Answers
+    # QA ANSWERS
     # ------------------------------------------------------
 
     answer_headers = (
@@ -492,9 +514,7 @@ def initialise_google_sheets():
             f"Parameter_{i}"
             for i in range(1, 29)
         ]
-        + [
-            "Last_Updated"
-        ]
+        + ["Last_Updated"]
     )
 
     answers_ws = ensure_worksheet(
@@ -504,7 +524,7 @@ def initialise_google_sheets():
     )
 
     # ------------------------------------------------------
-    # Parameters
+    # QA PARAMETERS
     # ------------------------------------------------------
 
     parameter_headers = [
@@ -539,7 +559,8 @@ def initialise_google_sheets():
                 question,
                 (
                     "Yes"
-                    if parameter_id in FATAL_PARAMETERS
+                    if parameter_id
+                    in FATAL_PARAMETERS
                     else "No"
                 ),
                 1,
@@ -554,7 +575,7 @@ def initialise_google_sheets():
             )
 
     # ------------------------------------------------------
-    # Summary
+    # AGENT SUMMARY
     # ------------------------------------------------------
 
     summary_headers = [
@@ -584,7 +605,30 @@ def initialise_google_sheets():
 
 
 # ==========================================================
-# GOOGLE ROW LOOKUP
+# COLUMN LETTER
+# ==========================================================
+
+def column_letter(number):
+
+    result = ""
+
+    while number > 0:
+
+        number, remainder = divmod(
+            number - 1,
+            26
+        )
+
+        result = (
+            chr(65 + remainder)
+            + result
+        )
+
+    return result
+
+
+# ==========================================================
+# FIND GOOGLE ROW BY QA ID
 # ==========================================================
 
 def find_google_row(
@@ -614,32 +658,7 @@ def find_google_row(
 
 
 # ==========================================================
-# COLUMN LETTER
-# ==========================================================
-
-def column_letter(number):
-
-    result = ""
-
-    while number > 0:
-
-        number, remainder = divmod(
-            number - 1,
-            26
-        )
-
-        result = (
-            chr(
-                65 + remainder
-            )
-            + result
-        )
-
-    return result
-
-
-# ==========================================================
-# SALE ROW → GOOGLE SHEETS
+# CONVERT SALE ROW TO GOOGLE VALUES
 # ==========================================================
 
 def row_to_google_values(row):
@@ -656,7 +675,7 @@ def row_to_google_values(row):
             )
         )
 
-    # QA/report columns
+    # QA fields
     extra_columns = [
         "QA_ID",
         "QA_Status",
@@ -713,7 +732,7 @@ def row_to_google_values(row):
 
 
 # ==========================================================
-# SAVE ONE SALE
+# SAVE SALE TO GOOGLE
 # ==========================================================
 
 def save_sale_to_google(
@@ -723,13 +742,8 @@ def save_sale_to_google(
 
     sheets = initialise_google_sheets()
 
-    records_ws = sheets[
-        "records"
-    ]
-
-    answers_ws = sheets[
-        "answers"
-    ]
+    records_ws = sheets["records"]
+    answers_ws = sheets["answers"]
 
     qa_id = safe_value(
         sale_row,
@@ -737,7 +751,7 @@ def save_sale_to_google(
     )
 
     # ------------------------------------------------------
-    # Main record
+    # RECORD
     # ------------------------------------------------------
 
     record_values = row_to_google_values(
@@ -751,10 +765,13 @@ def save_sale_to_google(
 
     if existing_record_row:
 
+        last_column = column_letter(
+            len(record_values)
+        )
+
         records_ws.update(
             f"A{existing_record_row}:"
-            f"{column_letter(len(record_values))}"
-            f"{existing_record_row}",
+            f"{last_column}{existing_record_row}",
             [record_values],
             value_input_option="USER_ENTERED"
         )
@@ -767,7 +784,7 @@ def save_sale_to_google(
         )
 
     # ------------------------------------------------------
-    # Parameter answers
+    # ANSWERS
     # ------------------------------------------------------
 
     answer_values = [
@@ -797,10 +814,13 @@ def save_sale_to_google(
 
     if existing_answer_row:
 
+        last_column = column_letter(
+            len(answer_values)
+        )
+
         answers_ws.update(
             f"A{existing_answer_row}:"
-            f"{column_letter(len(answer_values))}"
-            f"{existing_answer_row}",
+            f"{last_column}{existing_answer_row}",
             [answer_values],
             value_input_option="USER_ENTERED"
         )
@@ -814,7 +834,7 @@ def save_sale_to_google(
 
 
 # ==========================================================
-# GOOGLE → APP
+# SYNC GOOGLE → APP
 # ==========================================================
 
 def sync_from_google():
@@ -846,19 +866,18 @@ def sync_from_google():
     )
 
     # ------------------------------------------------------
-    # Score conversion
+    # QA SCORE
     # ------------------------------------------------------
 
     records_df["QA_Score"] = (
         pd.to_numeric(
             records_df["QA_Score"],
             errors="coerce"
-        )
-        .astype(object)
+        ).astype(object)
     )
 
     # ------------------------------------------------------
-    # Fatal conversion
+    # FATAL FAILURE
     # ------------------------------------------------------
 
     records_df["Fatal_Failure"] = (
@@ -876,7 +895,7 @@ def sync_from_google():
     )
 
     # ------------------------------------------------------
-    # Answer sheet
+    # ANSWERS
     # ------------------------------------------------------
 
     answer_records = (
@@ -896,6 +915,7 @@ def sync_from_google():
         ).strip()
 
         if not qa_id:
+
             continue
 
         answers = {}
@@ -922,7 +942,10 @@ def sync_from_google():
                 parameter_id
             ] = answer
 
-        # Pull report fields from main record
+        # --------------------------------------------------
+        # Add report fields from QA Records
+        # --------------------------------------------------
+
         matching = records_df[
             records_df["QA_ID"].astype(str)
             == qa_id
@@ -932,102 +955,73 @@ def sync_from_google():
 
             row = matching.iloc[0]
 
-            answers[
-                "final_result"
-            ] = safe_value(
+            answers["final_result"] = safe_value(
                 row,
                 "Final_QA_Result"
             )
 
-            answers[
-                "comments"
-            ] = safe_value(
+            answers["comments"] = safe_value(
                 row,
                 "QA_Comments"
             )
 
-            answers[
-                "evaluator_name"
-            ] = safe_value(
+            answers["evaluator_name"] = safe_value(
                 row,
                 "Evaluator_Name"
             )
 
-            answers[
-                "campaign_line"
-            ] = safe_value(
+            answers["campaign_line"] = safe_value(
                 row,
                 "Campaign_Line"
             )
 
-            answers[
-                "call_disposition"
-            ] = safe_value(
+            answers["call_disposition"] = safe_value(
                 row,
                 "Call_Disposition"
             )
 
-            answers[
-                "next_review_date"
-            ] = safe_value(
+            answers["next_review_date"] = safe_value(
                 row,
                 "Next_Review_Date"
             )
 
-            answers[
-                "call_summary"
-            ] = safe_value(
+            answers["call_summary"] = safe_value(
                 row,
                 "Call_Summary"
             )
 
-            answers[
-                "goods"
-            ] = safe_value(
+            answers["goods"] = safe_value(
                 row,
                 "Goods"
             )
 
-            answers[
-                "bads"
-            ] = safe_value(
+            answers["bads"] = safe_value(
                 row,
                 "Bads"
             )
 
-            answers[
-                "dos"
-            ] = safe_value(
+            answers["dos"] = safe_value(
                 row,
                 "Dos"
             )
 
-            answers[
-                "donts"
-            ] = safe_value(
+            answers["donts"] = safe_value(
                 row,
                 "Donts"
             )
 
-            answers[
-                "actionable_coaching"
-            ] = safe_value(
+            answers["actionable_coaching"] = safe_value(
                 row,
                 "Actionable_Coaching"
             )
 
-        qa_answers[
-            qa_id
-        ] = answers
+        qa_answers[qa_id] = answers
 
-    return (
-        records_df,
-        qa_answers
-    )
+    return records_df, qa_answers
 
 
 # ==========================================================
-# UPDATE GOOGLE AGENT SUMMARY
+# UPDATE AGENT SUMMARY SHEET
 # ==========================================================
 
 def update_agent_summary(df):
@@ -1050,17 +1044,17 @@ def update_agent_summary(df):
         "Fatal Failures"
     ]
 
-    completed = df[
-        df["QA_Status"]
-        == "Completed"
-    ].copy()
-
     worksheet.clear()
 
     worksheet.update(
         "A1",
         [headers]
     )
+
+    completed = df[
+        df["QA_Status"]
+        == "Completed"
+    ].copy()
 
     if completed.empty:
 
@@ -1082,6 +1076,12 @@ def update_agent_summary(df):
             scores.mean()
             if scores.notna().any()
             else 0
+        )
+
+        fatal_series = (
+            group["Fatal_Failure"]
+            .fillna(False)
+            .astype(bool)
         )
 
         rows.append([
@@ -1122,7 +1122,7 @@ def update_agent_summary(df):
                 ).sum()
             ),
             int(
-                group["Fatal_Failure"].sum()
+                fatal_series.sum()
             )
         ])
 
@@ -1228,7 +1228,7 @@ def create_excel_download(
     output = BytesIO()
 
     # ------------------------------------------------------
-    # Sheet 1: QA Results
+    # QA RESULTS SHEET
     # ------------------------------------------------------
 
     results_columns = [
@@ -1274,7 +1274,7 @@ def create_excel_download(
     ].copy()
 
     # ------------------------------------------------------
-    # Sheet 2: Detailed QA
+    # DETAILED QA SHEET
     # ------------------------------------------------------
 
     detailed_rows = []
@@ -1369,7 +1369,7 @@ def create_excel_download(
     )
 
     # ------------------------------------------------------
-    # Write workbook
+    # WRITE EXCEL
     # ------------------------------------------------------
 
     with pd.ExcelWriter(
@@ -1397,7 +1397,6 @@ def create_excel_download(
             "valign": "top"
         })
 
-        # QA Results
         for sheet_name, dataframe in [
             (
                 "QA Results",
@@ -1471,7 +1470,59 @@ def create_excel_download(
 
 
 # ==========================================================
-# APP HEADER
+# LOAD DASHBOARD HISTORY
+# ==========================================================
+
+def load_dashboard_history():
+
+    try:
+
+        dashboard_df, dashboard_answers = (
+            sync_from_google()
+        )
+
+        if dashboard_df is None:
+
+            st.session_state[
+                "dashboard_df"
+            ] = None
+
+            st.session_state[
+                "dashboard_answers"
+            ] = {}
+
+        else:
+
+            st.session_state[
+                "dashboard_df"
+            ] = make_editable_dataframe(
+                dashboard_df
+            )
+
+            st.session_state[
+                "dashboard_answers"
+            ] = dashboard_answers
+
+        st.session_state[
+            "dashboard_loaded"
+        ] = True
+
+        return True
+
+    except Exception as e:
+
+        st.error(
+            "Could not load historical QA data "
+            "from Google Sheets."
+        )
+
+        st.exception(e)
+
+        return False
+
+
+# ==========================================================
+# HEADER
 # ==========================================================
 
 st.title(
@@ -1479,1780 +1530,2226 @@ st.title(
 )
 
 st.caption(
-    "Sales QA • Google Sheets • Agent Performance • Reporting"
+    "Quality Assurance • Persistent Google Sheets History • Agent Performance"
 )
 
 
 # ==========================================================
-# GOOGLE SHEET CONTROLS
+# MAIN TABS
 # ==========================================================
 
-with st.expander(
-    "☁️ Google Sheet",
-    expanded=False
-):
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        if st.button(
-            "🔄 Sync Google Sheet",
-            use_container_width=True
-        ):
-
-            try:
-
-                synced_df, synced_answers = (
-                    sync_from_google()
-                )
-
-                if synced_df is None:
-
-                    st.info(
-                        "Google Sheet is currently empty."
-                    )
-
-                else:
-
-                    st.session_state[
-                        "sales_data"
-                    ] = make_editable_dataframe(
-                        synced_df
-                    )
-
-                    st.session_state[
-                        "qa_answers"
-                    ] = synced_answers
-
-                    st.session_state[
-                        "uploaded_file_key"
-                    ] = None
-
-                    st.success(
-                        f"Synced "
-                        f"{len(synced_df):,} "
-                        "records from Google Sheets."
-                    )
-
-                    st.rerun()
-
-            except Exception as e:
-
-                st.error(
-                    "Google Sheet sync failed."
-                )
-
-                st.exception(e)
-
-    with col2:
-
-        st.write(
-            "Google Sheets stores the persistent QA "
-            "records and detailed parameter answers."
-        )
+qa_tab, dashboard_tab = st.tabs([
+    "✅ QA Checker",
+    "📊 Agent Dashboard"
+])
 
 
-# ==========================================================
-# FILE UPLOAD
-# ==========================================================
+# ################################################################
+# ################################################################
+#
+# QA CHECKER TAB
+#
+# ################################################################
+# ################################################################
 
-uploaded_file = st.file_uploader(
-    "Upload Daily Sales Excel File",
-    type=[
-        "xlsx",
-        "xls"
-    ]
-)
-
-
-# ==========================================================
-# PROCESS UPLOAD
-# ==========================================================
-
-if uploaded_file is not None:
-
-    try:
-
-        raw_df = pd.read_excel(
-            uploaded_file,
-            header=None
-        )
-
-        if raw_df.shape[1] != EXPECTED_COLUMN_COUNT:
-
-            st.error(
-                f"Unexpected file structure. "
-                f"Expected exactly "
-                f"{EXPECTED_COLUMN_COUNT} columns, "
-                f"but found "
-                f"{raw_df.shape[1]}."
-            )
-
-            st.stop()
-
-        raw_df.columns = COLUMN_NAMES
-
-        raw_df = raw_df.dropna(
-            how="all"
-        ).reset_index(
-            drop=True
-        )
-
-        upload_key = (
-            uploaded_file.name
-            + "_"
-            + str(len(raw_df))
-        )
-
-        if st.session_state.get(
-            "uploaded_file_key"
-        ) != upload_key:
-
-            df = prepare_dataframe(
-                raw_df
-            )
-
-            st.session_state[
-                "sales_data"
-            ] = df
-
-            st.session_state[
-                "qa_answers"
-            ] = {}
-
-            st.session_state[
-                "uploaded_file_key"
-            ] = upload_key
-
-            st.success(
-                f"File uploaded successfully — "
-                f"{len(df):,} sales loaded."
-            )
-
-    except Exception as e:
-
-        st.error(
-            "Could not read the uploaded Excel file."
-        )
-
-        st.exception(e)
-
-
-# ==========================================================
-# MAIN APPLICATION
-# ==========================================================
-
-if st.session_state[
-    "sales_data"
-] is not None:
-
-    df = make_editable_dataframe(
-        st.session_state[
-            "sales_data"
-        ]
-    )
-
-    st.session_state[
-        "sales_data"
-    ] = df
-
-    qa_answers = st.session_state[
-        "qa_answers"
-    ]
+with qa_tab:
 
     # ======================================================
-    # TOP QA METRICS
+    # GOOGLE SHEET CONTROLS
     # ======================================================
 
-    st.divider()
-
-    st.subheader(
-        "QA Dashboard"
-    )
-
-    total_sales = len(df)
-
-    pending_count = int(
-        (
-            df["QA_Status"]
-            == "Quality Pending"
-        ).sum()
-    )
-
-    completed_count = int(
-        (
-            df["QA_Status"]
-            == "Completed"
-        ).sum()
-    )
-
-    approved_count = int(
-        (
-            df["Final_QA_Result"]
-            == "Approved"
-        ).sum()
-    )
-
-    rejected_count = int(
-        (
-            df["Final_QA_Result"]
-            == "Rejected"
-        ).sum()
-    )
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    with col1:
-
-        st.metric(
-            "Total Sales",
-            total_sales
-        )
-
-    with col2:
-
-        st.metric(
-            "Pending",
-            pending_count
-        )
-
-    with col3:
-
-        st.metric(
-            "Completed",
-            completed_count
-        )
-
-    with col4:
-
-        st.metric(
-            "Approved",
-            approved_count
-        )
-
-    with col5:
-
-        st.metric(
-            "Rejected",
-            rejected_count
-        )
-
-    # ======================================================
-    # FIND SALE
-    # ======================================================
-
-    st.divider()
-
-    st.subheader(
-        "Find Sale"
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    # ------------------------------------------------------
-    # Agent
-    # ------------------------------------------------------
-
-    with col1:
-
-        agent_options = [
-            "All"
-        ] + sorted(
-            df["Agent"]
-            .fillna("")
-            .astype(str)
-            .unique()
-            .tolist()
-        )
-
-        selected_agent = st.selectbox(
-            "Agent",
-            agent_options,
-            key="find_agent"
-        )
-
-    filtered_df = df.copy()
-
-    if selected_agent != "All":
-
-        filtered_df = filtered_df[
-            filtered_df["Agent"]
-            .astype(str)
-            == selected_agent
-        ]
-
-    # ------------------------------------------------------
-    # Status
-    # ------------------------------------------------------
-
-    with col2:
-
-        selected_status = st.selectbox(
-            "QA Status",
-            [
-                "All",
-                "Quality Pending",
-                "Completed"
-            ],
-            key="find_status"
-        )
-
-    if selected_status != "All":
-
-        filtered_df = filtered_df[
-            filtered_df["QA_Status"]
-            == selected_status
-        ]
-
-    # ------------------------------------------------------
-    # Result
-    # ------------------------------------------------------
-
-    with col3:
-
-        selected_result = st.selectbox(
-            "Final Result",
-            [
-                "All"
-            ] + FINAL_RESULTS,
-            key="find_result"
-        )
-
-    if selected_result != "All":
-
-        filtered_df = filtered_df[
-            filtered_df[
-                "Final_QA_Result"
-            ]
-            == selected_result
-        ]
-
-    # ======================================================
-    # SALE SELECTOR
-    # ======================================================
-
-    st.divider()
-
-    st.subheader(
-        "Select Sale for Quality Check"
-    )
-
-    if filtered_df.empty:
-
-        st.warning(
-            "No sales match the selected filters."
-        )
-
-    else:
-
-        sale_options = (
-            filtered_df[
-                "QA_ID"
-            ]
-            .astype(str)
-            .tolist()
-        )
-
-        # Build display dictionary once.
-        sale_display = {}
-
-        for qa_id in sale_options:
-
-            matching = df[
-                df["QA_ID"].astype(str)
-                == str(qa_id)
-            ]
-
-            if matching.empty:
-
-                sale_display[
-                    qa_id
-                ] = qa_id
-
-            else:
-
-                row = matching.iloc[0]
-
-                sale_display[
-                    qa_id
-                ] = (
-                    f"{qa_id} — "
-                    f"{safe_value(row, 'Customer_Name')} — "
-                    f"Agent: "
-                    f"{safe_value(row, 'Agent')} — "
-                    f"{safe_value(row, 'QA_Status')}"
-                )
-
-        selected_qa_id = st.selectbox(
-            "Sale",
-            sale_options,
-            format_func=lambda x:
-                sale_display.get(
-                    x,
-                    x
-                ),
-            key="selected_sale"
-        )
-
-        # ==================================================
-        # SELECT SALE
-        # ==================================================
-
-        selected_rows = df[
-            df["QA_ID"].astype(str)
-            == str(selected_qa_id)
-        ]
-
-        if selected_rows.empty:
-
-            st.error(
-                "Selected sale could not be found."
-            )
-
-            st.stop()
-
-        sale = selected_rows.iloc[0]
-
-        # ==================================================
-        # SALE DETAILS
-        # ==================================================
-
-        st.divider()
-
-        st.subheader(
-            "Sale Details"
-        )
-
-        col1, col2, col3, col4 = st.columns(4)
+    with st.expander(
+        "☁️ Google Sheet",
+        expanded=False
+    ):
+
+        col1, col2 = st.columns(2)
 
         with col1:
 
-            st.caption("Customer")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Customer_Name"
-                )
-            )
-
-        with col2:
-
-            st.caption("Phone")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Phone"
-                )
-            )
-
-        with col3:
-
-            st.caption("Agent")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Agent"
-                )
-            )
-
-        with col4:
-
-            st.caption("Verifier")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Verifier"
-                )
-            )
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-
-            st.caption("Sale Date")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Sale_Date"
-                )
-            )
-
-        with col2:
-
-            st.caption("Current Provider")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Current_Provider"
-                )
-            )
-
-        with col3:
-
-            st.caption("Broadband Type")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Broadband_Type"
-                )
-            )
-
-        with col4:
-
-            st.caption("Payment Method")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Payment_Method"
-                )
-            )
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-
-            st.caption("Package")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Package_Offered"
-                )
-            )
-
-        with col2:
-
-            st.caption("Service")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Service"
-                )
-            )
-
-        with col3:
-
-            st.caption("Router Charges")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Router_Charges"
-                )
-            )
-
-        with col4:
-
-            st.caption("Contract Duration")
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Contract_Duration"
-                )
-            )
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-
-            st.caption(
-                "1471 / 1571"
-            )
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Calling_Feature"
-                )
-            )
-
-        with col2:
-
-            st.caption(
-                "Bill / Cost"
-            )
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Bill_Cost"
-                )
-            )
-
-        with col3:
-
-            st.caption(
-                "Payment Frequency"
-            )
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Payment_Frequency"
-                )
-            )
-
-        with col4:
-
-            st.caption(
-                "Lead Source"
-            )
-
-            st.write(
-                safe_value(
-                    sale,
-                    "Lead_Source"
-                )
-            )
-
-        st.caption(
-            "Customer Address"
-        )
-
-        st.write(
-            safe_value(
-                sale,
-                "Customer_Address"
-            )
-        )
-
-        notes = safe_value(
-            sale,
-            "Additional_Notes"
-        )
-
-        if notes and notes.lower() != "n/a":
-
-            st.caption(
-                "Additional Sale Notes"
-            )
-
-            st.info(
-                notes
-            )
-
-        # ==================================================
-        # CURRENT ANSWERS
-        # ==================================================
-
-        current_answers = (
-            qa_answers.get(
-                selected_qa_id,
-                {}
-            )
-        )
-
-        # ==================================================
-        # QUALITY CHECKLIST
-        # ==================================================
-
-        st.divider()
-
-        st.subheader(
-            "Quality Checklist"
-        )
-
-        st.caption(
-            "All questions default to Yes. "
-            "Change to No or N/A where appropriate."
-        )
-
-        with st.form(
-            key=f"qa_form_{selected_qa_id}"
-        ):
-
-            answers = {}
-
-            # --------------------------------------------------
-            # Questions
-            # --------------------------------------------------
-
-            for parameter_id, question in enumerate(
-                QA_QUESTIONS,
-                start=1
+            if st.button(
+                "🔄 Sync Google Sheet",
+                use_container_width=True,
+                key="qa_sync_button"
             ):
 
-                question_col, answer_col = st.columns(
-                    [7.5, 2.5],
-                    vertical_alignment="center"
-                )
+                try:
 
-                with question_col:
+                    synced_df, synced_answers = (
+                        sync_from_google()
+                    )
 
-                    if parameter_id in FATAL_PARAMETERS:
+                    if synced_df is None:
 
-                        st.markdown(
-                            f"**{parameter_id}. "
-                            f"{question} ⚠️**"
+                        st.info(
+                            "Google Sheet is currently empty."
                         )
 
                     else:
 
-                        st.markdown(
-                            f"**{parameter_id}. "
-                            f"{question}**"
+                        st.session_state[
+                            "sales_data"
+                        ] = make_editable_dataframe(
+                            synced_df
                         )
 
-                with answer_col:
-
-                    previous_answer = current_answers.get(
-                        parameter_id,
-                        "Yes"
-                    )
-
-                    options = [
-                        "Yes",
-                        "No",
-                        "N/A"
-                    ]
-
-                    if previous_answer not in options:
-
-                        previous_answer = "Yes"
-
-                    selected_answer = st.radio(
-                        f"Parameter {parameter_id}",
-                        options,
-                        index=options.index(
-                            previous_answer
-                        ),
-                        horizontal=True,
-                        key=(
-                            f"answer_"
-                            f"{selected_qa_id}_"
-                            f"{parameter_id}"
-                        ),
-                        label_visibility="collapsed"
-                    )
-
-                    answers[
-                        parameter_id
-                    ] = selected_answer
-
-                st.write("")
-
-            # ==================================================
-            # REPORT DETAILS
-            # ==================================================
-
-            st.divider()
-
-            st.subheader(
-                "QA Report Details"
-            )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                evaluator_name = st.text_input(
-                    "Evaluator Name",
-                    value=safe_value(
-                        sale,
-                        "Evaluator_Name"
-                    )
-                )
-
-            with col2:
-
-                campaign_line = st.text_input(
-                    "Campaign / Line",
-                    value=safe_value(
-                        sale,
-                        "Campaign_Line"
-                    )
-                )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                call_disposition = st.text_input(
-                    "Call Disposition",
-                    value=safe_value(
-                        sale,
-                        "Call_Disposition"
-                    )
-                )
-
-            with col2:
-
-                next_review_date = st.text_input(
-                    "Next Review Date",
-                    value=safe_value(
-                        sale,
-                        "Next_Review_Date"
-                    ),
-                    placeholder="e.g. In 1 Week"
-                )
-
-            call_summary = st.text_area(
-                "Call Summary & Context",
-                value=safe_value(
-                    sale,
-                    "Call_Summary"
-                ),
-                height=120
-            )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                goods = st.text_area(
-                    "GOODS — Strengths",
-                    value=safe_value(
-                        sale,
-                        "Goods"
-                    ),
-                    height=150
-                )
-
-            with col2:
-
-                bads = st.text_area(
-                    "BADS — Errors / Areas to Improve",
-                    value=safe_value(
-                        sale,
-                        "Bads"
-                    ),
-                    height=150
-                )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                dos = st.text_area(
-                    "DO'S — Recommended Behaviours",
-                    value=safe_value(
-                        sale,
-                        "Dos"
-                    ),
-                    height=150
-                )
-
-            with col2:
-
-                donts = st.text_area(
-                    "DON'TS — Strictly Avoid",
-                    value=safe_value(
-                        sale,
-                        "Donts"
-                    ),
-                    height=150
-                )
-
-            actionable_coaching = st.text_area(
-                "Actionable Coaching",
-                value=safe_value(
-                    sale,
-                    "Actionable_Coaching"
-                ),
-                height=150
-            )
-
-            # ==================================================
-            # FINAL RESULT
-            # ==================================================
-
-            st.divider()
-
-            st.subheader(
-                "Final QA Decision"
-            )
-
-            previous_final_result = (
-                current_answers.get(
-                    "final_result",
-                    safe_value(
-                        sale,
-                        "Final_QA_Result"
-                    )
-                )
-            )
-
-            final_result_options = [
-                "Select Final Result"
-            ] + FINAL_RESULTS
-
-            if previous_final_result in FINAL_RESULTS:
-
-                final_index = (
-                    final_result_options.index(
-                        previous_final_result
-                    )
-                )
-
-            else:
-
-                final_index = 0
-
-            final_result = st.selectbox(
-                "Final Result",
-                final_result_options,
-                index=final_index
-            )
-
-            # ==================================================
-            # COMMENTS
-            # ==================================================
-
-            comments = st.text_area(
-                "QA Comments",
-                value=current_answers.get(
-                    "comments",
-                    safe_value(
-                        sale,
-                        "QA_Comments"
-                    )
-                ),
-                placeholder=(
-                    "Enter overall QA observations..."
-                )
-            )
-
-            st.write("")
-
-            # ==================================================
-            # BUTTONS
-            # ==================================================
-
-            save_progress = st.form_submit_button(
-                "💾 SAVE PROGRESS",
-                use_container_width=True
-            )
-
-            submit_final = st.form_submit_button(
-                "✅ SUBMIT FINAL QA",
-                type="primary",
-                use_container_width=True
-            )
-
-        # ==================================================
-        # SAVE / SUBMIT
-        # ==================================================
-
-        if save_progress or submit_final:
-
-            answers[
-                "final_result"
-            ] = (
-                final_result
-                if final_result
-                != "Select Final Result"
-                else ""
-            )
-
-            answers[
-                "comments"
-            ] = comments
-
-            answers[
-                "evaluator_name"
-            ] = evaluator_name
-
-            answers[
-                "campaign_line"
-            ] = campaign_line
-
-            answers[
-                "call_disposition"
-            ] = call_disposition
-
-            answers[
-                "next_review_date"
-            ] = next_review_date
-
-            answers[
-                "call_summary"
-            ] = call_summary
-
-            answers[
-                "goods"
-            ] = goods
-
-            answers[
-                "bads"
-            ] = bads
-
-            answers[
-                "dos"
-            ] = dos
-
-            answers[
-                "donts"
-            ] = donts
-
-            answers[
-                "actionable_coaching"
-            ] = actionable_coaching
-
-            st.session_state[
-                "qa_answers"
-            ][selected_qa_id] = answers
-
-            # --------------------------------------------------
-            # Always keep dataframe editable
-            # --------------------------------------------------
-
-            df = make_editable_dataframe(
-                df
-            )
-
-            mask = (
-                df["QA_ID"].astype(str)
-                == str(selected_qa_id)
-            )
-
-            score = calculate_score(
-                answers
-            )
-
-            fatal_failure = has_fatal_failure(
-                answers
-            )
-
-            # --------------------------------------------------
-            # Save Progress
-            # --------------------------------------------------
-
-            if save_progress:
-
-                df.loc[
-                    mask,
-                    "QA_Score"
-                ] = score
-
-                df.loc[
-                    mask,
-                    "Fatal_Failure"
-                ] = fatal_failure
-
-                df.loc[
-                    mask,
-                    "QA_Comments"
-                ] = comments
-
-                df.loc[
-                    mask,
-                    "QA_Status"
-                ] = "Quality Pending"
-
-                # Report fields
-                report_fields = {
-                    "Evaluator_Name": evaluator_name,
-                    "Campaign_Line": campaign_line,
-                    "Call_Disposition": call_disposition,
-                    "Next_Review_Date": next_review_date,
-                    "Call_Summary": call_summary,
-                    "Goods": goods,
-                    "Bads": bads,
-                    "Dos": dos,
-                    "Donts": donts,
-                    "Actionable_Coaching": actionable_coaching,
-                    "Last_Updated": current_timestamp()
-                }
-
-                for column, value in report_fields.items():
-
-                    df.loc[
-                        mask,
-                        column
-                    ] = value
-
-                st.session_state[
-                    "sales_data"
-                ] = make_editable_dataframe(
-                    df
-                )
-
-                # Google
-                try:
-
-                    save_sale_to_google(
-                        df[
-                            mask
-                        ].iloc[0],
-                        answers
-                    )
-
-                    update_agent_summary(
-                        df
-                    )
-
-                    st.success(
-                        "Progress saved successfully "
-                        "to Google Sheets."
-                    )
+                        st.session_state[
+                            "qa_answers"
+                        ] = synced_answers
+
+                        st.session_state[
+                            "uploaded_file_key"
+                        ] = None
+
+                        st.success(
+                            f"Synced "
+                            f"{len(synced_df):,} "
+                            "records from Google Sheets."
+                        )
+
+                        st.rerun()
 
                 except Exception as e:
 
-                    st.warning(
-                        "Progress was saved in the current "
-                        "session, but Google Sheet saving failed."
+                    st.error(
+                        "Google Sheet sync failed."
                     )
 
                     st.exception(e)
 
-            # --------------------------------------------------
-            # Final submission
-            # --------------------------------------------------
+        with col2:
 
-            if submit_final:
-
-                if final_result == "Select Final Result":
-
-                    st.error(
-                        "Please select a Final QA Result "
-                        "before submitting."
-                    )
-
-                else:
-
-                    df.loc[
-                        mask,
-                        "QA_Status"
-                    ] = "Completed"
-
-                    df.loc[
-                        mask,
-                        "QA_Score"
-                    ] = score
-
-                    df.loc[
-                        mask,
-                        "Fatal_Failure"
-                    ] = fatal_failure
-
-                    df.loc[
-                        mask,
-                        "Final_QA_Result"
-                    ] = final_result
-
-                    df.loc[
-                        mask,
-                        "QA_Comments"
-                    ] = comments
-
-                    report_fields = {
-                        "Evaluator_Name": evaluator_name,
-                        "Campaign_Line": campaign_line,
-                        "Call_Disposition": call_disposition,
-                        "Next_Review_Date": next_review_date,
-                        "Call_Summary": call_summary,
-                        "Goods": goods,
-                        "Bads": bads,
-                        "Dos": dos,
-                        "Donts": donts,
-                        "Actionable_Coaching": actionable_coaching,
-                        "Last_Updated": current_timestamp()
-                    }
-
-                    for column, value in report_fields.items():
-
-                        df.loc[
-                            mask,
-                            column
-                        ] = value
-
-                    st.session_state[
-                        "sales_data"
-                    ] = make_editable_dataframe(
-                        df
-                    )
-
-                    google_saved = False
-
-                    try:
-
-                        save_sale_to_google(
-                            df[
-                                mask
-                            ].iloc[0],
-                            answers
-                        )
-
-                        update_agent_summary(
-                            df
-                        )
-
-                        google_saved = True
-
-                    except Exception as e:
-
-                        st.warning(
-                            "QA was completed in the app, "
-                            "but the Google Sheet save failed."
-                        )
-
-                        st.exception(e)
-
-                    st.divider()
-
-                    if final_result == "Approved":
-
-                        st.success(
-                            "SALE QA COMPLETED — APPROVED"
-                        )
-
-                    elif final_result == "Rejected":
-
-                        st.error(
-                            "SALE QA COMPLETED — REJECTED"
-                        )
-
-                    elif final_result == "Cancelled":
-
-                        st.warning(
-                            "SALE QA COMPLETED — CANCELLED"
-                        )
-
-                    elif final_result == "Reworked Required":
-
-                        st.warning(
-                            "SALE QA COMPLETED — REWORK REQUIRED"
-                        )
-
-                    elif final_result == "Hold":
-
-                        st.info(
-                            "SALE QA COMPLETED — ON HOLD"
-                        )
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-
-                        st.metric(
-                            "Quality Score",
-                            f"{score:.2f}%"
-                        )
-
-                    with col2:
-
-                        st.metric(
-                            "Fatal Failure",
-                            "YES"
-                            if fatal_failure
-                            else "NO"
-                        )
-
-                    with col3:
-
-                        st.metric(
-                            "Final QA Result",
-                            final_result
-                        )
-
-                    if google_saved:
-
-                        st.success(
-                            "✓ QA result saved to Google Sheets."
-                        )
+            st.write(
+                "Google Sheets stores the persistent "
+                "QA records and detailed parameter answers."
+            )
 
     # ======================================================
-    # AGENT QUALITY DASHBOARD
+    # FILE UPLOAD
     # ======================================================
 
-    st.divider()
-
-    st.subheader(
-        "📊 Agent Quality Dashboard"
+    uploaded_file = st.file_uploader(
+        "Upload Daily Sales Excel File",
+        type=[
+            "xlsx",
+            "xls"
+        ],
+        key="daily_sales_upload"
     )
 
-    completed_df = df[
-        df["QA_Status"]
-        == "Completed"
-    ].copy()
+    if uploaded_file is not None:
 
-    if completed_df.empty:
+        try:
 
-        st.info(
-            "Complete some QA records to populate "
-            "the agent dashboard."
-        )
+            raw_df = pd.read_excel(
+                uploaded_file,
+                header=None
+            )
 
-    else:
-
-        # --------------------------------------------------
-        # Date filter
-        # --------------------------------------------------
-
-        parsed_dates = pd.to_datetime(
-            completed_df["Sale_Date"],
-            errors="coerce",
-            dayfirst=True
-        )
-
-        valid_dates = parsed_dates.dropna()
-
-        if valid_dates.empty:
-
-            dashboard_df = completed_df.copy()
-
-        else:
-
-            min_date = valid_dates.min().date()
-            max_date = valid_dates.max().date()
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                dashboard_start = st.date_input(
-                    "Dashboard From",
-                    value=min_date,
-                    min_value=min_date,
-                    max_value=max_date,
-                    key="dashboard_start"
-                )
-
-            with col2:
-
-                dashboard_end = st.date_input(
-                    "Dashboard To",
-                    value=max_date,
-                    min_value=min_date,
-                    max_value=max_date,
-                    key="dashboard_end"
-                )
-
-            if dashboard_start > dashboard_end:
+            if raw_df.shape[1] != EXPECTED_COLUMN_COUNT:
 
                 st.error(
-                    "Start date cannot be after end date."
+                    f"Unexpected file structure. "
+                    f"Expected exactly "
+                    f"{EXPECTED_COLUMN_COUNT} columns, "
+                    f"but found "
+                    f"{raw_df.shape[1]}."
                 )
 
-                dashboard_df = completed_df.iloc[
-                    0:0
-                ].copy()
+                st.stop()
 
-            else:
+            raw_df.columns = COLUMN_NAMES
 
-                dashboard_dates = pd.to_datetime(
-                    completed_df["Sale_Date"],
-                    errors="coerce",
-                    dayfirst=True
-                ).dt.date
+            raw_df = raw_df.dropna(
+                how="all"
+            ).reset_index(
+                drop=True
+            )
 
-                dashboard_df = completed_df[
-                    (
-                        dashboard_dates
-                        >= dashboard_start
-                    )
-                    &
-                    (
-                        dashboard_dates
-                        <= dashboard_end
-                    )
-                ].copy()
+            upload_key = (
+                uploaded_file.name
+                + "_"
+                + str(len(raw_df))
+            )
 
-        # --------------------------------------------------
-        # Agent filter
-        # --------------------------------------------------
+            if st.session_state.get(
+                "uploaded_file_key"
+            ) != upload_key:
 
-        dashboard_agent_options = [
-            "All"
-        ] + sorted(
-            dashboard_df["Agent"]
-            .fillna("")
-            .astype(str)
-            .unique()
-            .tolist()
+                df_uploaded = prepare_dataframe(
+                    raw_df
+                )
+
+                st.session_state[
+                    "sales_data"
+                ] = df_uploaded
+
+                st.session_state[
+                    "qa_answers"
+                ] = {}
+
+                st.session_state[
+                    "uploaded_file_key"
+                ] = upload_key
+
+                st.success(
+                    f"File uploaded successfully — "
+                    f"{len(df_uploaded):,} sales loaded."
+                )
+
+        except Exception as e:
+
+            st.error(
+                "Could not read the uploaded Excel file."
+            )
+
+            st.exception(e)
+
+    # ======================================================
+    # GET CURRENT QA DATA
+    # ======================================================
+
+    df = st.session_state.get(
+        "sales_data"
+    )
+
+    qa_answers = st.session_state.get(
+        "qa_answers",
+        {}
+    )
+
+    # ======================================================
+    # QA WORKSPACE
+    # ======================================================
+
+    if df is not None:
+
+        df = make_editable_dataframe(
+            df
         )
 
-        dashboard_agent = st.selectbox(
-            "Dashboard Agent",
-            dashboard_agent_options,
-            key="dashboard_agent"
+        st.session_state[
+            "sales_data"
+        ] = df
+
+        # ==================================================
+        # TOP METRICS
+        # ==================================================
+
+        st.divider()
+
+        st.subheader(
+            "QA Dashboard"
         )
 
-        if dashboard_agent != "All":
+        total_sales = len(df)
 
-            dashboard_df = dashboard_df[
-                dashboard_df["Agent"]
-                .astype(str)
-                == dashboard_agent
-            ]
+        pending_count = int(
+            (
+                df["QA_Status"]
+                == "Quality Pending"
+            ).sum()
+        )
 
-        if dashboard_df.empty:
+        completed_count = int(
+            (
+                df["QA_Status"]
+                == "Completed"
+            ).sum()
+        )
 
-            st.info(
-                "No completed records match the "
-                "dashboard filters."
+        approved_count = int(
+            (
+                df["Final_QA_Result"]
+                == "Approved"
+            ).sum()
+        )
+
+        rejected_count = int(
+            (
+                df["Final_QA_Result"]
+                == "Rejected"
+            ).sum()
+        )
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+
+        with col1:
+
+            st.metric(
+                "Total Sales",
+                total_sales
             )
 
-        else:
+        with col2:
 
-            dashboard_scores = pd.to_numeric(
-                dashboard_df["QA_Score"],
-                errors="coerce"
+            st.metric(
+                "Pending",
+                pending_count
             )
 
-            average_score = (
-                dashboard_scores.mean()
-                if dashboard_scores.notna().any()
-                else 0
+        with col3:
+
+            st.metric(
+                "Completed",
+                completed_count
             )
 
-            reworked_count = int(
-                (
-                    dashboard_df[
-                        "Final_QA_Result"
-                    ]
-                    == "Reworked Required"
-                ).sum()
+        with col4:
+
+            st.metric(
+                "Approved",
+                approved_count
             )
 
-            hold_count = int(
-                (
-                    dashboard_df[
-                        "Final_QA_Result"
-                    ]
-                    == "Hold"
-                ).sum()
+        with col5:
+
+            st.metric(
+                "Rejected",
+                rejected_count
             )
 
-            fatal_count = int(
-                dashboard_df[
-                    "Fatal_Failure"
-                ]
-                .fillna(False)
-                .astype(bool)
-                .sum()
-            )
+        # ==================================================
+        # FIND SALE
+        # ==================================================
 
-            # --------------------------------------------------
-            # KPIs
-            # --------------------------------------------------
+        st.divider()
 
-            col1, col2, col3, col4, col5 = st.columns(5)
+        st.subheader(
+            "Find Sale"
+        )
 
-            with col1:
+        col1, col2, col3 = st.columns(3)
 
-                st.metric(
-                    "Sales Checked",
-                    len(dashboard_df)
-                )
+        # --------------------------------------------------
+        # Agent
+        # --------------------------------------------------
 
-            with col2:
+        with col1:
 
-                st.metric(
-                    "Average QA Score",
-                    f"{average_score:.2f}%"
-                )
-
-            with col3:
-
-                st.metric(
-                    "Reworked",
-                    reworked_count
-                )
-
-            with col4:
-
-                st.metric(
-                    "Hold",
-                    hold_count
-                )
-
-            with col5:
-
-                st.metric(
-                    "Fatal Failures",
-                    fatal_count
-                )
-
-            # --------------------------------------------------
-            # Agent ranking
-            # --------------------------------------------------
-
-            st.markdown(
-                "### Agent Performance"
-            )
-
-            agent_rows = []
-
-            for agent, group in dashboard_df.groupby(
-                "Agent",
-                dropna=False
-            ):
-
-                scores = pd.to_numeric(
-                    group["QA_Score"],
-                    errors="coerce"
-                )
-
-                average = (
-                    scores.mean()
-                    if scores.notna().any()
-                    else 0
-                )
-
-                agent_rows.append({
-                    "Agent": str(agent),
-                    "Sales Checked": len(group),
-                    "Average QA Score": round(
-                        average,
-                        2
-                    ),
-                    "Approved": int(
-                        (
-                            group["Final_QA_Result"]
-                            == "Approved"
-                        ).sum()
-                    ),
-                    "Rejected": int(
-                        (
-                            group["Final_QA_Result"]
-                            == "Rejected"
-                        ).sum()
-                    ),
-                    "Cancelled": int(
-                        (
-                            group["Final_QA_Result"]
-                            == "Cancelled"
-                        ).sum()
-                    ),
-                    "Reworked": int(
-                        (
-                            group["Final_QA_Result"]
-                            == "Reworked Required"
-                        ).sum()
-                    ),
-                    "Hold": int(
-                        (
-                            group["Final_QA_Result"]
-                            == "Hold"
-                        ).sum()
-                    ),
-                    "Fatal Failures": int(
-                        group["Fatal_Failure"]
-                        .fillna(False)
-                        .astype(bool)
-                        .sum()
-                    )
-                })
-
-            agent_table = pd.DataFrame(
-                agent_rows
-            )
-
-            if not agent_table.empty:
-
-                st.dataframe(
-                    agent_table.sort_values(
-                        "Average QA Score",
-                        ascending=False
-                    ),
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-            # ==================================================
-            # PARAMETER PERFORMANCE
-            # ==================================================
-
-            st.divider()
-
-            st.markdown(
-                "### Parameter Performance"
-            )
-
-            parameter_df = get_parameter_performance(
-                dashboard_df,
-                qa_answers
-            )
-
-            if not parameter_df.empty:
-
-                st.caption(
-                    "Yes % = percentage of applicable checks "
-                    "answered Yes."
-                )
-
-                parameter_display = parameter_df[
-                    [
-                        "Parameter",
-                        "Question",
-                        "Yes",
-                        "No",
-                        "N/A",
-                        "Applicable",
-                        "Yes %"
-                    ]
-                ].sort_values(
-                    "Yes %"
-                )
-
-                st.dataframe(
-                    parameter_display,
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                # --------------------------------------------------
-                # Weakest parameters
-                # --------------------------------------------------
-
-                st.markdown(
-                    "### Areas Needing Most Attention"
-                )
-
-                weakest = (
-                    parameter_df[
-                        parameter_df["Applicable"] > 0
-                    ]
-                    .sort_values(
-                        "Yes %"
-                    )
-                    .head(5)
-                )
-
-                for _, item in weakest.iterrows():
-
-                    st.write(
-                        f"**Parameter "
-                        f"{int(item['Parameter'])} — "
-                        f"{item['Yes %']:.2f}% Yes**"
-                    )
-
-                    st.caption(
-                        item["Question"]
-                    )
-
-            # ==================================================
-            # AGENT PARAMETER BREAKDOWN
-            # ==================================================
-
-            st.divider()
-
-            st.markdown(
-                "### Agent Parameter Breakdown"
-            )
-
-            parameter_agent_options = [
+            agent_options = [
                 "All"
             ] + sorted(
-                dashboard_df["Agent"]
+                df["Agent"]
                 .fillna("")
                 .astype(str)
                 .unique()
                 .tolist()
             )
 
-            breakdown_agent = st.selectbox(
-                "Select Agent",
-                parameter_agent_options,
-                key="parameter_breakdown_agent"
+            selected_agent = st.selectbox(
+                "Agent",
+                agent_options,
+                key="find_agent"
             )
 
-            breakdown_df = dashboard_df.copy()
+        filtered_df = df.copy()
 
-            if breakdown_agent != "All":
+        if selected_agent != "All":
 
-                breakdown_df = breakdown_df[
-                    breakdown_df["Agent"]
-                    .astype(str)
-                    == breakdown_agent
+            filtered_df = filtered_df[
+                filtered_df["Agent"]
+                .astype(str)
+                == selected_agent
+            ]
+
+        # --------------------------------------------------
+        # Status
+        # --------------------------------------------------
+
+        with col2:
+
+            selected_status = st.selectbox(
+                "QA Status",
+                [
+                    "All",
+                    "Quality Pending",
+                    "Completed"
+                ],
+                key="find_status"
+            )
+
+        if selected_status != "All":
+
+            filtered_df = filtered_df[
+                filtered_df["QA_Status"]
+                == selected_status
+            ]
+
+        # --------------------------------------------------
+        # Final Result
+        # --------------------------------------------------
+
+        with col3:
+
+            selected_result = st.selectbox(
+                "Final Result",
+                [
+                    "All"
+                ] + FINAL_RESULTS,
+                key="find_result"
+            )
+
+        if selected_result != "All":
+
+            filtered_df = filtered_df[
+                filtered_df[
+                    "Final_QA_Result"
+                ]
+                == selected_result
+            ]
+
+        # ==================================================
+        # SELECT SALE
+        # ==================================================
+
+        st.divider()
+
+        st.subheader(
+            "Select Sale for Quality Check"
+        )
+
+        if filtered_df.empty:
+
+            st.warning(
+                "No sales match the selected filters."
+            )
+
+        else:
+
+            sale_options = (
+                filtered_df[
+                    "QA_ID"
+                ]
+                .astype(str)
+                .tolist()
+            )
+
+            # ------------------------------------------------
+            # This dictionary replaces the old sale_label()
+            # function completely.
+            # ------------------------------------------------
+
+            sale_display = {}
+
+            for qa_id in sale_options:
+
+                matching = df[
+                    df["QA_ID"].astype(str)
+                    == str(qa_id)
                 ]
 
-            breakdown_parameter_df = (
-                get_parameter_performance(
-                    breakdown_df,
-                    qa_answers
-                )
+                if matching.empty:
+
+                    sale_display[
+                        qa_id
+                    ] = qa_id
+
+                else:
+
+                    sale_row = matching.iloc[0]
+
+                    customer = safe_value(
+                        sale_row,
+                        "Customer_Name"
+                    )
+
+                    agent = safe_value(
+                        sale_row,
+                        "Agent"
+                    )
+
+                    status = safe_value(
+                        sale_row,
+                        "QA_Status"
+                    )
+
+                    sale_display[
+                        qa_id
+                    ] = (
+                        f"{qa_id} — "
+                        f"{customer} — "
+                        f"Agent: {agent} — "
+                        f"{status}"
+                    )
+
+            selected_qa_id = st.selectbox(
+                "Sale",
+                sale_options,
+                format_func=lambda x:
+                    sale_display.get(
+                        x,
+                        x
+                    ),
+                key="selected_sale"
             )
 
-            if not breakdown_parameter_df.empty:
+            # ==================================================
+            # SELECTED SALE
+            # ==================================================
+
+            selected_rows = df[
+                df["QA_ID"].astype(str)
+                == str(selected_qa_id)
+            ]
+
+            if not selected_rows.empty:
+
+                sale = selected_rows.iloc[0]
+
+                # ==============================================
+                # SALE DETAILS
+                # ==============================================
+
+                st.divider()
+
+                st.subheader(
+                    "Sale Details"
+                )
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+
+                    st.caption(
+                        "Customer"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Customer_Name"
+                        )
+                    )
+
+                with col2:
+
+                    st.caption(
+                        "Phone"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Phone"
+                        )
+                    )
+
+                with col3:
+
+                    st.caption(
+                        "Agent"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Agent"
+                        )
+                    )
+
+                with col4:
+
+                    st.caption(
+                        "Verifier"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Verifier"
+                        )
+                    )
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+
+                    st.caption(
+                        "Sale Date"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Sale_Date"
+                        )
+                    )
+
+                with col2:
+
+                    st.caption(
+                        "Current Provider"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Current_Provider"
+                        )
+                    )
+
+                with col3:
+
+                    st.caption(
+                        "Broadband Type"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Broadband_Type"
+                        )
+                    )
+
+                with col4:
+
+                    st.caption(
+                        "Payment Method"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Payment_Method"
+                        )
+                    )
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+
+                    st.caption(
+                        "Package"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Package_Offered"
+                        )
+                    )
+
+                with col2:
+
+                    st.caption(
+                        "Service"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Service"
+                        )
+                    )
+
+                with col3:
+
+                    st.caption(
+                        "Router Charges"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Router_Charges"
+                        )
+                    )
+
+                with col4:
+
+                    st.caption(
+                        "Contract Duration"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Contract_Duration"
+                        )
+                    )
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+
+                    st.caption(
+                        "1471 / 1571"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Calling_Feature"
+                        )
+                    )
+
+                with col2:
+
+                    st.caption(
+                        "Bill / Cost"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Bill_Cost"
+                        )
+                    )
+
+                with col3:
+
+                    st.caption(
+                        "Payment Frequency"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Payment_Frequency"
+                        )
+                    )
+
+                with col4:
+
+                    st.caption(
+                        "Lead Source"
+                    )
+
+                    st.write(
+                        safe_value(
+                            sale,
+                            "Lead_Source"
+                        )
+                    )
+
+                st.caption(
+                    "Customer Address"
+                )
+
+                st.write(
+                    safe_value(
+                        sale,
+                        "Customer_Address"
+                    )
+                )
+
+                notes = safe_value(
+                    sale,
+                    "Additional_Notes"
+                )
+
+                if (
+                    notes
+                    and notes.lower() != "n/a"
+                ):
+
+                    st.caption(
+                        "Additional Sale Notes"
+                    )
+
+                    st.info(
+                        notes
+                    )
+
+                # ==============================================
+                # CURRENT ANSWERS
+                # ==============================================
+
+                current_answers = (
+                    qa_answers.get(
+                        selected_qa_id,
+                        {}
+                    )
+                )
+
+                # ==============================================
+                # QUALITY CHECKLIST
+                # ==============================================
+
+                st.divider()
+
+                st.subheader(
+                    "Quality Checklist"
+                )
+
+                st.caption(
+                    "All questions default to Yes. "
+                    "Change to No or N/A where appropriate."
+                )
+
+                with st.form(
+                    key=f"qa_form_{selected_qa_id}"
+                ):
+
+                    answers = {}
+
+                    # ------------------------------------------
+                    # 28 QUESTIONS
+                    # ------------------------------------------
+
+                    for parameter_id, question in enumerate(
+                        QA_QUESTIONS,
+                        start=1
+                    ):
+
+                        question_col, answer_col = st.columns(
+                            [7.5, 2.5],
+                            vertical_alignment="center"
+                        )
+
+                        with question_col:
+
+                            if parameter_id in FATAL_PARAMETERS:
+
+                                st.markdown(
+                                    f"**{parameter_id}. "
+                                    f"{question} ⚠️**"
+                                )
+
+                            else:
+
+                                st.markdown(
+                                    f"**{parameter_id}. "
+                                    f"{question}**"
+                                )
+
+                        with answer_col:
+
+                            previous_answer = (
+                                current_answers.get(
+                                    parameter_id,
+                                    "Yes"
+                                )
+                            )
+
+                            options = [
+                                "Yes",
+                                "No",
+                                "N/A"
+                            ]
+
+                            if (
+                                previous_answer
+                                not in options
+                            ):
+
+                                previous_answer = "Yes"
+
+                            selected_answer = st.radio(
+                                f"Parameter {parameter_id}",
+                                options,
+                                index=options.index(
+                                    previous_answer
+                                ),
+                                horizontal=True,
+                                key=(
+                                    f"answer_"
+                                    f"{selected_qa_id}_"
+                                    f"{parameter_id}"
+                                ),
+                                label_visibility="collapsed"
+                            )
+
+                            answers[
+                                parameter_id
+                            ] = selected_answer
+
+                        st.write("")
+
+                    # ==========================================
+                    # QA REPORT
+                    # ==========================================
+
+                    st.divider()
+
+                    st.subheader(
+                        "QA Report Details"
+                    )
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+
+                        evaluator_name = st.text_input(
+                            "Evaluator Name",
+                            value=safe_value(
+                                sale,
+                                "Evaluator_Name"
+                            )
+                        )
+
+                    with col2:
+
+                        campaign_line = st.text_input(
+                            "Campaign / Line",
+                            value=safe_value(
+                                sale,
+                                "Campaign_Line"
+                            )
+                        )
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+
+                        call_disposition = st.text_input(
+                            "Call Disposition",
+                            value=safe_value(
+                                sale,
+                                "Call_Disposition"
+                            )
+                        )
+
+                    with col2:
+
+                        next_review_date = st.text_input(
+                            "Next Review Date",
+                            value=safe_value(
+                                sale,
+                                "Next_Review_Date"
+                            ),
+                            placeholder="e.g. In 1 Week"
+                        )
+
+                    call_summary = st.text_area(
+                        "Call Summary & Context",
+                        value=safe_value(
+                            sale,
+                            "Call_Summary"
+                        ),
+                        height=120
+                    )
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+
+                        goods = st.text_area(
+                            "GOODS — Strengths",
+                            value=safe_value(
+                                sale,
+                                "Goods"
+                            ),
+                            height=150
+                        )
+
+                    with col2:
+
+                        bads = st.text_area(
+                            "BADS — Errors / Areas to Improve",
+                            value=safe_value(
+                                sale,
+                                "Bads"
+                            ),
+                            height=150
+                        )
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+
+                        dos = st.text_area(
+                            "DO'S — Recommended Behaviours",
+                            value=safe_value(
+                                sale,
+                                "Dos"
+                            ),
+                            height=150
+                        )
+
+                    with col2:
+
+                        donts = st.text_area(
+                            "DON'TS — Strictly Avoid",
+                            value=safe_value(
+                                sale,
+                                "Donts"
+                            ),
+                            height=150
+                        )
+
+                    actionable_coaching = st.text_area(
+                        "Actionable Coaching",
+                        value=safe_value(
+                            sale,
+                            "Actionable_Coaching"
+                        ),
+                        height=150
+                    )
+
+                    # ==========================================
+                    # FINAL DECISION
+                    # ==========================================
+
+                    st.divider()
+
+                    st.subheader(
+                        "Final QA Decision"
+                    )
+
+                    previous_final_result = (
+                        current_answers.get(
+                            "final_result",
+                            safe_value(
+                                sale,
+                                "Final_QA_Result"
+                            )
+                        )
+                    )
+
+                    final_result_options = [
+                        "Select Final Result"
+                    ] + FINAL_RESULTS
+
+                    if (
+                        previous_final_result
+                        in FINAL_RESULTS
+                    ):
+
+                        final_index = (
+                            final_result_options.index(
+                                previous_final_result
+                            )
+                        )
+
+                    else:
+
+                        final_index = 0
+
+                    final_result = st.selectbox(
+                        "Final Result",
+                        final_result_options,
+                        index=final_index
+                    )
+
+                    comments = st.text_area(
+                        "QA Comments",
+                        value=current_answers.get(
+                            "comments",
+                            safe_value(
+                                sale,
+                                "QA_Comments"
+                            )
+                        ),
+                        placeholder=(
+                            "Enter overall QA observations..."
+                        )
+                    )
+
+                    st.write("")
+
+                    # ==========================================
+                    # BUTTONS
+                    # ==========================================
+
+                    save_progress = st.form_submit_button(
+                        "💾 SAVE PROGRESS",
+                        use_container_width=True
+                    )
+
+                    submit_final = st.form_submit_button(
+                        "✅ SUBMIT FINAL QA",
+                        type="primary",
+                        use_container_width=True
+                    )
+
+                # =================================================
+                # SAVE / SUBMIT ACTION
+                # =================================================
+
+                if (
+                    save_progress
+                    or submit_final
+                ):
+
+                    answers["final_result"] = (
+                        final_result
+                        if final_result
+                        != "Select Final Result"
+                        else ""
+                    )
+
+                    answers["comments"] = comments
+                    answers["evaluator_name"] = evaluator_name
+                    answers["campaign_line"] = campaign_line
+                    answers["call_disposition"] = call_disposition
+                    answers["next_review_date"] = next_review_date
+                    answers["call_summary"] = call_summary
+                    answers["goods"] = goods
+                    answers["bads"] = bads
+                    answers["dos"] = dos
+                    answers["donts"] = donts
+                    answers["actionable_coaching"] = (
+                        actionable_coaching
+                    )
+
+                    st.session_state[
+                        "qa_answers"
+                    ][selected_qa_id] = answers
+
+                    df = make_editable_dataframe(
+                        df
+                    )
+
+                    mask = (
+                        df["QA_ID"].astype(str)
+                        == str(selected_qa_id)
+                    )
+
+                    score = calculate_score(
+                        answers
+                    )
+
+                    fatal_failure = has_fatal_failure(
+                        answers
+                    )
+
+                    # =============================================
+                    # SAVE PROGRESS
+                    # =============================================
+
+                    if save_progress:
+
+                        df.loc[
+                            mask,
+                            "QA_Score"
+                        ] = score
+
+                        df.loc[
+                            mask,
+                            "Fatal_Failure"
+                        ] = fatal_failure
+
+                        df.loc[
+                            mask,
+                            "QA_Comments"
+                        ] = comments
+
+                        df.loc[
+                            mask,
+                            "QA_Status"
+                        ] = "Quality Pending"
+
+                        report_fields = {
+                            "Evaluator_Name": evaluator_name,
+                            "Campaign_Line": campaign_line,
+                            "Call_Disposition": call_disposition,
+                            "Next_Review_Date": next_review_date,
+                            "Call_Summary": call_summary,
+                            "Goods": goods,
+                            "Bads": bads,
+                            "Dos": dos,
+                            "Donts": donts,
+                            "Actionable_Coaching": actionable_coaching,
+                            "Last_Updated": current_timestamp()
+                        }
+
+                        for column, value in report_fields.items():
+
+                            df.loc[
+                                mask,
+                                column
+                            ] = value
+
+                        st.session_state[
+                            "sales_data"
+                        ] = make_editable_dataframe(
+                            df
+                        )
+
+                        try:
+
+                            save_sale_to_google(
+                                df[
+                                    mask
+                                ].iloc[0],
+                                answers
+                            )
+
+                            update_agent_summary(
+                                df
+                            )
+
+                            st.success(
+                                "Progress saved successfully "
+                                "to Google Sheets."
+                            )
+
+                        except Exception as e:
+
+                            st.warning(
+                                "Progress was saved in this "
+                                "session, but Google Sheet "
+                                "saving failed."
+                            )
+
+                            st.exception(e)
+
+                    # =============================================
+                    # FINAL SUBMISSION
+                    # =============================================
+
+                    if submit_final:
+
+                        if (
+                            final_result
+                            == "Select Final Result"
+                        ):
+
+                            st.error(
+                                "Please select a Final QA Result "
+                                "before submitting."
+                            )
+
+                        else:
+
+                            df.loc[
+                                mask,
+                                "QA_Status"
+                            ] = "Completed"
+
+                            df.loc[
+                                mask,
+                                "QA_Score"
+                            ] = score
+
+                            df.loc[
+                                mask,
+                                "Fatal_Failure"
+                            ] = fatal_failure
+
+                            df.loc[
+                                mask,
+                                "Final_QA_Result"
+                            ] = final_result
+
+                            df.loc[
+                                mask,
+                                "QA_Comments"
+                            ] = comments
+
+                            report_fields = {
+                                "Evaluator_Name": evaluator_name,
+                                "Campaign_Line": campaign_line,
+                                "Call_Disposition": call_disposition,
+                                "Next_Review_Date": next_review_date,
+                                "Call_Summary": call_summary,
+                                "Goods": goods,
+                                "Bads": bads,
+                                "Dos": dos,
+                                "Donts": donts,
+                                "Actionable_Coaching": actionable_coaching,
+                                "Last_Updated": current_timestamp()
+                            }
+
+                            for column, value in report_fields.items():
+
+                                df.loc[
+                                    mask,
+                                    column
+                                ] = value
+
+                            st.session_state[
+                                "sales_data"
+                            ] = make_editable_dataframe(
+                                df
+                            )
+
+                            google_saved = False
+
+                            try:
+
+                                save_sale_to_google(
+                                    df[
+                                        mask
+                                    ].iloc[0],
+                                    answers
+                                )
+
+                                update_agent_summary(
+                                    df
+                                )
+
+                                google_saved = True
+
+                            except Exception as e:
+
+                                st.warning(
+                                    "QA was completed in the app, "
+                                    "but the Google Sheet save failed."
+                                )
+
+                                st.exception(e)
+
+                            # -----------------------------------------
+                            # Update local dashboard copy when possible
+                            # -----------------------------------------
+
+                            dashboard_df_existing = (
+                                st.session_state.get(
+                                    "dashboard_df"
+                                )
+                            )
+
+                            if dashboard_df_existing is not None:
+
+                                dashboard_df_existing = (
+                                    make_editable_dataframe(
+                                        dashboard_df_existing
+                                    )
+                                )
+
+                                existing_mask = (
+                                    dashboard_df_existing[
+                                        "QA_ID"
+                                    ].astype(str)
+                                    == str(
+                                        selected_qa_id
+                                    )
+                                )
+
+                                updated_sale = df[
+                                    mask
+                                ].iloc[0]
+
+                                if existing_mask.any():
+
+                                    for column in df.columns:
+
+                                        if column in dashboard_df_existing.columns:
+
+                                            dashboard_df_existing.loc[
+                                                existing_mask,
+                                                column
+                                            ] = updated_sale.get(
+                                                column,
+                                                ""
+                                            )
+
+                                else:
+
+                                    dashboard_df_existing = pd.concat(
+                                        [
+                                            dashboard_df_existing,
+                                            pd.DataFrame(
+                                                [updated_sale]
+                                            )
+                                        ],
+                                        ignore_index=True
+                                    )
+
+                                st.session_state[
+                                    "dashboard_df"
+                                ] = make_editable_dataframe(
+                                    dashboard_df_existing
+                                )
+
+                                st.session_state[
+                                    "dashboard_answers"
+                                ][selected_qa_id] = answers
+
+                            # -----------------------------------------
+                            # Result banner
+                            # -----------------------------------------
+
+                            st.divider()
+
+                            if final_result == "Approved":
+
+                                st.success(
+                                    "SALE QA COMPLETED — APPROVED"
+                                )
+
+                            elif final_result == "Rejected":
+
+                                st.error(
+                                    "SALE QA COMPLETED — REJECTED"
+                                )
+
+                            elif final_result == "Cancelled":
+
+                                st.warning(
+                                    "SALE QA COMPLETED — CANCELLED"
+                                )
+
+                            elif final_result == "Reworked Required":
+
+                                st.warning(
+                                    "SALE QA COMPLETED — REWORK REQUIRED"
+                                )
+
+                            elif final_result == "Hold":
+
+                                st.info(
+                                    "SALE QA COMPLETED — ON HOLD"
+                                )
+
+                            col1, col2, col3 = st.columns(3)
+
+                            with col1:
+
+                                st.metric(
+                                    "Quality Score",
+                                    f"{score:.2f}%"
+                                )
+
+                            with col2:
+
+                                st.metric(
+                                    "Fatal Failure",
+                                    (
+                                        "YES"
+                                        if fatal_failure
+                                        else "NO"
+                                    )
+                                )
+
+                            with col3:
+
+                                st.metric(
+                                    "Final QA Result",
+                                    final_result
+                                )
+
+                            if google_saved:
+
+                                st.success(
+                                    "✓ QA result saved to Google Sheets."
+                                )
+
+                # ==============================================
+                # CURRENT RESULTS
+                # ==============================================
+
+                st.divider()
+
+                st.subheader(
+                    "Current QA Results"
+                )
+
+                results_table_columns = [
+                    "QA_ID",
+                    "Sale_Date",
+                    "Agent",
+                    "Verifier",
+                    "Customer_Name",
+                    "QA_Status",
+                    "QA_Score",
+                    "Fatal_Failure",
+                    "Final_QA_Result",
+                    "QA_Comments"
+                ]
+
+                current_results_df = df[
+                    results_table_columns
+                ].copy()
 
                 st.dataframe(
-                    breakdown_parameter_df[
-                        [
-                            "Parameter",
-                            "Question",
-                            "Yes",
-                            "No",
-                            "N/A",
-                            "Applicable",
-                            "Yes %"
-                        ]
-                    ].sort_values(
-                        "Yes %"
-                    ),
+                    current_results_df,
                     use_container_width=True,
                     hide_index=True
                 )
 
-    # ======================================================
-    # CURRENT RESULTS
-    # ======================================================
+                # ==============================================
+                # EXCEL EXPORT
+                # ==============================================
 
-    st.divider()
+                st.divider()
+
+                st.subheader(
+                    "Export"
+                )
+
+                excel_file = create_excel_download(
+                    df,
+                    st.session_state[
+                        "qa_answers"
+                    ]
+                )
+
+                st.download_button(
+                    label="⬇️ Download QA Excel",
+                    data=excel_file,
+                    file_name="Sparta_QA_Results.xlsx",
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
+                    use_container_width=True,
+                    key="qa_excel_download"
+                )
+
+    else:
+
+        st.info(
+            "Upload a daily sales Excel file above "
+            "or use Google Sheet Sync to load existing QA records."
+        )
+
+
+# ################################################################
+# ################################################################
+#
+# AGENT DASHBOARD TAB
+#
+# ################################################################
+# ################################################################
+
+with dashboard_tab:
 
     st.subheader(
-        "Current QA Results"
+        "📊 Agent Performance Dashboard"
     )
 
-    results_table_columns = [
-        "QA_ID",
-        "Sale_Date",
-        "Agent",
-        "Verifier",
-        "Customer_Name",
-        "QA_Status",
-        "QA_Score",
-        "Fatal_Failure",
-        "Final_QA_Result",
-        "QA_Comments"
-    ]
-
-    current_results_df = df[
-        results_table_columns
-    ].copy()
-
-    st.dataframe(
-        current_results_df,
-        use_container_width=True,
-        hide_index=True
+    st.caption(
+        "This dashboard uses the persistent QA history stored in Google Sheets."
     )
 
     # ======================================================
-    # EXCEL EXPORT
+    # AUTOLOAD HISTORICAL DATA
     # ======================================================
 
-    st.divider()
-
-    st.subheader(
-        "Export"
-    )
-
-    excel_file = create_excel_download(
-        df,
-        st.session_state[
-            "qa_answers"
+    if (
+        not st.session_state[
+            "dashboard_loaded"
         ]
+    ):
+
+        with st.spinner(
+            "Loading historical QA data..."
+        ):
+
+            load_dashboard_history()
+
+    # ======================================================
+    # REFRESH BUTTON
+    # ======================================================
+
+    col1, col2 = st.columns(
+        [1, 4]
     )
 
-    st.download_button(
-        label="⬇️ Download QA Excel",
-        data=excel_file,
-        file_name="Sparta_QA_Results.xlsx",
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
-        use_container_width=True
+    with col1:
+
+        refresh_dashboard = st.button(
+            "🔄 Refresh Historical Data",
+            use_container_width=True,
+            key="refresh_dashboard"
+        )
+
+    with col2:
+
+        last_dashboard_info = (
+            "Historical data is loaded from Google Sheets."
+        )
+
+        st.caption(
+            last_dashboard_info
+        )
+
+    if refresh_dashboard:
+
+        with st.spinner(
+            "Refreshing historical QA data..."
+        ):
+
+            if load_dashboard_history():
+
+                st.success(
+                    "Dashboard data refreshed."
+                )
+
+    dashboard_df = st.session_state.get(
+        "dashboard_df"
     )
+
+    dashboard_answers = st.session_state.get(
+        "dashboard_answers",
+        {}
+    )
+
+    # ======================================================
+    # NO DATA
+    # ======================================================
+
+    if dashboard_df is None:
+
+        st.info(
+            "No historical QA records are currently available."
+        )
+
+    elif dashboard_df.empty:
+
+        st.info(
+            "Google Sheets does not contain any QA records yet."
+        )
+
+    else:
+
+        dashboard_df = make_editable_dataframe(
+            dashboard_df
+        )
+
+        # ==================================================
+        # ONLY COMPLETED RECORDS
+        # ==================================================
+
+        completed_df = dashboard_df[
+            dashboard_df["QA_Status"]
+            == "Completed"
+        ].copy()
+
+        if completed_df.empty:
+
+            st.info(
+                "There are no completed QA records yet."
+            )
+
+        else:
+
+            # ==============================================
+            # DATE FILTER
+            # ==============================================
+
+            parsed_dates = pd.to_datetime(
+                completed_df["Sale_Date"],
+                errors="coerce",
+                dayfirst=True
+            )
+
+            valid_dates = parsed_dates.dropna()
+
+            if valid_dates.empty:
+
+                dashboard_filtered = (
+                    completed_df.copy()
+                )
+
+            else:
+
+                min_date = valid_dates.min().date()
+                max_date = valid_dates.max().date()
+
+                st.markdown(
+                    "### Filters"
+                )
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+
+                    dashboard_start = st.date_input(
+                        "From Date",
+                        value=min_date,
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="agent_dashboard_from"
+                    )
+
+                with col2:
+
+                    dashboard_end = st.date_input(
+                        "To Date",
+                        value=max_date,
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="agent_dashboard_to"
+                    )
+
+                if (
+                    dashboard_start
+                    > dashboard_end
+                ):
+
+                    st.error(
+                        "From Date cannot be after To Date."
+                    )
+
+                    dashboard_filtered = (
+                        completed_df.iloc[
+                            0:0
+                        ].copy()
+                    )
+
+                else:
+
+                    dashboard_dates = pd.to_datetime(
+                        completed_df["Sale_Date"],
+                        errors="coerce",
+                        dayfirst=True
+                    ).dt.date
+
+                    dashboard_filtered = completed_df[
+                        (
+                            dashboard_dates
+                            >= dashboard_start
+                        )
+                        &
+                        (
+                            dashboard_dates
+                            <= dashboard_end
+                        )
+                    ].copy()
+
+            if dashboard_filtered.empty:
+
+                st.info(
+                    "No completed QA records match the selected dates."
+                )
+
+            else:
+
+                # ==============================================
+                # AGENT FILTER
+                # ==============================================
+
+                agent_options = [
+                    "All"
+                ] + sorted(
+                    dashboard_filtered[
+                        "Agent"
+                    ]
+                    .fillna("")
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+
+                dashboard_agent = st.selectbox(
+                    "Agent",
+                    agent_options,
+                    key="agent_dashboard_agent"
+                )
+
+                if dashboard_agent != "All":
+
+                    dashboard_filtered = (
+                        dashboard_filtered[
+                            dashboard_filtered[
+                                "Agent"
+                            ]
+                            .astype(str)
+                            == dashboard_agent
+                        ]
+                        .copy()
+                    )
+
+                if dashboard_filtered.empty:
+
+                    st.info(
+                        "No data is available for this agent."
+                    )
+
+                else:
+
+                    # ==========================================
+                    # KPI METRICS
+                    # ==========================================
+
+                    st.divider()
+
+                    dashboard_scores = pd.to_numeric(
+                        dashboard_filtered[
+                            "QA_Score"
+                        ],
+                        errors="coerce"
+                    )
+
+                    average_score = (
+                        dashboard_scores.mean()
+                        if dashboard_scores.notna().any()
+                        else 0
+                    )
+
+                    approved_count = int(
+                        (
+                            dashboard_filtered[
+                                "Final_QA_Result"
+                            ]
+                            == "Approved"
+                        ).sum()
+                    )
+
+                    rejected_count = int(
+                        (
+                            dashboard_filtered[
+                                "Final_QA_Result"
+                            ]
+                            == "Rejected"
+                        ).sum()
+                    )
+
+                    cancelled_count = int(
+                        (
+                            dashboard_filtered[
+                                "Final_QA_Result"
+                            ]
+                            == "Cancelled"
+                        ).sum()
+                    )
+
+                    reworked_count = int(
+                        (
+                            dashboard_filtered[
+                                "Final_QA_Result"
+                            ]
+                            == "Reworked Required"
+                        ).sum()
+                    )
+
+                    hold_count = int(
+                        (
+                            dashboard_filtered[
+                                "Final_QA_Result"
+                            ]
+                            == "Hold"
+                        ).sum()
+                    )
+
+                    fatal_count = int(
+                        dashboard_filtered[
+                            "Fatal_Failure"
+                        ]
+                        .fillna(False)
+                        .astype(bool)
+                        .sum()
+                    )
+
+                    col1, col2, col3, col4, col5 = st.columns(5)
+
+                    with col1:
+
+                        st.metric(
+                            "Sales Checked",
+                            len(dashboard_filtered)
+                        )
+
+                    with col2:
+
+                        st.metric(
+                            "Average Score",
+                            f"{average_score:.2f}%"
+                        )
+
+                    with col3:
+
+                        st.metric(
+                            "Approved",
+                            approved_count
+                        )
+
+                    with col4:
+
+                        st.metric(
+                            "Rejected",
+                            rejected_count
+                        )
+
+                    with col5:
+
+                        st.metric(
+                            "Fatal Failures",
+                            fatal_count
+                        )
+
+                    # ==========================================
+                    # OUTCOME SUMMARY
+                    # ==========================================
+
+                    st.divider()
+
+                    st.markdown(
+                        "### QA Outcome Breakdown"
+                    )
+
+                    outcome_df = pd.DataFrame([
+                        {
+                            "Final Result": "Approved",
+                            "Count": approved_count
+                        },
+                        {
+                            "Final Result": "Rejected",
+                            "Count": rejected_count
+                        },
+                        {
+                            "Final Result": "Cancelled",
+                            "Count": cancelled_count
+                        },
+                        {
+                            "Final Result": "Reworked Required",
+                            "Count": reworked_count
+                        },
+                        {
+                            "Final Result": "Hold",
+                            "Count": hold_count
+                        }
+                    ])
+
+                    st.dataframe(
+                        outcome_df,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    # ==========================================
+                    # AGENT RANKING
+                    # ==========================================
+
+                    st.divider()
+
+                    st.markdown(
+                        "### Agent Performance Ranking"
+                    )
+
+                    ranking_rows = []
+
+                    for agent, group in dashboard_filtered.groupby(
+                        "Agent",
+                        dropna=False
+                    ):
+
+                        scores = pd.to_numeric(
+                            group[
+                                "QA_Score"
+                            ],
+                            errors="coerce"
+                        )
+
+                        agent_average = (
+                            scores.mean()
+                            if scores.notna().any()
+                            else 0
+                        )
+
+                        fatal_series = (
+                            group[
+                                "Fatal_Failure"
+                            ]
+                            .fillna(False)
+                            .astype(bool)
+                        )
+
+                        ranking_rows.append({
+                            "Agent": str(agent),
+                            "Sales Checked": len(group),
+                            "Average QA Score": round(
+                                agent_average,
+                                2
+                            ),
+                            "Approved": int(
+                                (
+                                    group[
+                                        "Final_QA_Result"
+                                    ]
+                                    == "Approved"
+                                ).sum()
+                            ),
+                            "Rejected": int(
+                                (
+                                    group[
+                                        "Final_QA_Result"
+                                    ]
+                                    == "Rejected"
+                                ).sum()
+                            ),
+                            "Cancelled": int(
+                                (
+                                    group[
+                                        "Final_QA_Result"
+                                    ]
+                                    == "Cancelled"
+                                ).sum()
+                            ),
+                            "Reworked": int(
+                                (
+                                    group[
+                                        "Final_QA_Result"
+                                    ]
+                                    == "Reworked Required"
+                                ).sum()
+                            ),
+                            "Hold": int(
+                                (
+                                    group[
+                                        "Final_QA_Result"
+                                    ]
+                                    == "Hold"
+                                ).sum()
+                            ),
+                            "Fatal Failures": int(
+                                fatal_series.sum()
+                            )
+                        })
+
+                    ranking_df = pd.DataFrame(
+                        ranking_rows
+                    )
+
+                    if not ranking_df.empty:
+
+                        ranking_df = ranking_df.sort_values(
+                            "Average QA Score",
+                            ascending=False
+                        ).reset_index(
+                            drop=True
+                        )
+
+                        ranking_df.insert(
+                            0,
+                            "Rank",
+                            range(
+                                1,
+                                len(ranking_df) + 1
+                            )
+                        )
+
+                        st.dataframe(
+                            ranking_df,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                    # ==========================================
+                    # PARAMETER PERFORMANCE
+                    # ==========================================
+
+                    st.divider()
+
+                    st.markdown(
+                        "### 28-Parameter Performance"
+                    )
+
+                    st.caption(
+                        "Yes % is calculated against applicable "
+                        "checks only; N/A is excluded."
+                    )
+
+                    parameter_df = (
+                        get_parameter_performance(
+                            dashboard_filtered,
+                            dashboard_answers
+                        )
+                    )
+
+                    parameter_display = (
+                        parameter_df[
+                            [
+                                "Parameter",
+                                "Question",
+                                "Yes",
+                                "No",
+                                "N/A",
+                                "Applicable",
+                                "Yes %"
+                            ]
+                        ]
+                        .sort_values(
+                            "Yes %"
+                        )
+                    )
+
+                    st.dataframe(
+                        parameter_display,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    # ==========================================
+                    # WEAKEST PARAMETERS
+                    # ==========================================
+
+                    st.divider()
+
+                    st.markdown(
+                        "### ⚠️ Areas Needing Most Attention"
+                    )
+
+                    weakest = (
+                        parameter_df[
+                            parameter_df[
+                                "Applicable"
+                            ] > 0
+                        ]
+                        .sort_values(
+                            "Yes %"
+                        )
+                        .head(5)
+                    )
+
+                    if weakest.empty:
+
+                        st.info(
+                            "No parameter data is available."
+                        )
+
+                    else:
+
+                        for _, item in weakest.iterrows():
+
+                            st.write(
+                                f"**Parameter "
+                                f"{int(item['Parameter'])} — "
+                                f"{item['Yes %']:.2f}% Yes**"
+                            )
+
+                            st.caption(
+                                item["Question"]
+                            )
+
+                            st.write(
+                                f"Yes: {int(item['Yes'])}  |  "
+                                f"No: {int(item['No'])}  |  "
+                                f"N/A: {int(item['N/A'])}"
+                            )
+
+                            st.write("")
+
+                    # ==========================================
+                    # AGENT-SPECIFIC PARAMETER BREAKDOWN
+                    # ==========================================
+
+                    st.divider()
+
+                    st.markdown(
+                        "### Agent Parameter Breakdown"
+                    )
+
+                    breakdown_agent_options = [
+                        "All"
+                    ] + sorted(
+                        dashboard_filtered[
+                            "Agent"
+                        ]
+                        .fillna("")
+                        .astype(str)
+                        .unique()
+                        .tolist()
+                    )
+
+                    breakdown_agent = st.selectbox(
+                        "Select Agent",
+                        breakdown_agent_options,
+                        key="parameter_breakdown_agent"
+                    )
+
+                    breakdown_df = (
+                        dashboard_filtered.copy()
+                    )
+
+                    if breakdown_agent != "All":
+
+                        breakdown_df = (
+                            breakdown_df[
+                                breakdown_df[
+                                    "Agent"
+                                ]
+                                .astype(str)
+                                == breakdown_agent
+                            ]
+                            .copy()
+                        )
+
+                    breakdown_parameter_df = (
+                        get_parameter_performance(
+                            breakdown_df,
+                            dashboard_answers
+                        )
+                    )
+
+                    breakdown_display = (
+                        breakdown_parameter_df[
+                            [
+                                "Parameter",
+                                "Question",
+                                "Yes",
+                                "No",
+                                "N/A",
+                                "Applicable",
+                                "Yes %"
+                            ]
+                        ]
+                        .sort_values(
+                            "Yes %"
+                        )
+                    )
+
+                    st.dataframe(
+                        breakdown_display,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    # ==========================================
+                    # SCORE DISTRIBUTION
+                    # ==========================================
+
+                    st.divider()
+
+                    st.markdown(
+                        "### QA Score Distribution"
+                    )
+
+                    score_distribution = (
+                        pd.to_numeric(
+                            dashboard_filtered[
+                                "QA_Score"
+                            ],
+                            errors="coerce"
+                        )
+                        .dropna()
+                    )
+
+                    if not score_distribution.empty:
+
+                        bins = [
+                            0,
+                            50,
+                            60,
+                            70,
+                            80,
+                            90,
+                            100
+                        ]
+
+                        labels = [
+                            "0–49%",
+                            "50–59%",
+                            "60–69%",
+                            "70–79%",
+                            "80–89%",
+                            "90–100%"
+                        ]
+
+                        score_buckets = pd.cut(
+                            score_distribution,
+                            bins=bins,
+                            labels=labels,
+                            include_lowest=True
+                        )
+
+                        score_distribution_df = (
+                            score_buckets
+                            .value_counts()
+                            .reindex(
+                                labels,
+                                fill_value=0
+                            )
+                            .rename_axis(
+                                "Score Range"
+                            )
+                            .reset_index(
+                                name="Sales"
+                            )
+                        )
+
+                        st.dataframe(
+                            score_distribution_df,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+
+# ==========================================================
+# END
+# ==========================================================
