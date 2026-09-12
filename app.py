@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape
 from google.oauth2.service_account import Credentials
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
@@ -20,8 +20,6 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
-    KeepTogether,
-    PageBreak,
 )
 
 
@@ -51,50 +49,51 @@ AGENT_SUMMARY_SHEET = "Agent Summary"
 
 
 # ==========================================================
-# INPUT FILE STRUCTURE - EXACT 40 COLUMNS
+# INPUT FILE STRUCTURE
+# EXACTLY 40 COLUMNS
 # ==========================================================
 
 COLUMN_NAMES = [
-    "Serial_No",             # 1
-    "Month",                 # 2
-    "Agent",                 # 3
-    "Verifier",              # 4
-    "Company",               # 5
-    "Sale_Date",             # 6
-    "Raw_7",                 # 7
-    "Raw_8",                 # 8
-    "Customer_Name",         # 9
-    "Phone",                 # 10
-    "Raw_11",                # 11
-    "Raw_12",                # 12
-    "Raw_13",                # 13
-    "Raw_14",                # 14
-    "Raw_15",                # 15
-    "Raw_16",                # 16
-    "Raw_17",                # 17
-    "Confirmation",          # 18
-    "Date_of_Birth",         # 19
-    "Current_Provider",      # 20
-    "Customer_Address",       # 21
-    "Bank_Name",             # 22
-    "Raw_23",                # 23
-    "Raw_24",                # 24
-    "Raw_25",                # 25
-    "Package_Offered",       # 26
-    "Service",               # 27
-    "Raw_28",                # 28
-    "Broadband_Type",        # 29
-    "Router_Charges",        # 30
-    "Raw_31",                # 31
-    "Raw_32",                # 32
-    "Payment_Frequency",     # 33
-    "Payment_Method",        # 34
-    "Contract_Duration",     # 35
-    "Calling_Feature",       # 36
-    "Raw_37",                # 37
-    "Bill_Cost",             # 38
-    "Additional_Notes",      # 39
-    "Lead_Source"            # 40
+    "Serial_No",
+    "Month",
+    "Agent",
+    "Verifier",
+    "Company",
+    "Sale_Date",
+    "Raw_7",
+    "Raw_8",
+    "Customer_Name",
+    "Phone",
+    "Raw_11",
+    "Raw_12",
+    "Raw_13",
+    "Raw_14",
+    "Raw_15",
+    "Raw_16",
+    "Raw_17",
+    "Confirmation",
+    "Date_of_Birth",
+    "Current_Provider",
+    "Customer_Address",
+    "Bank_Name",
+    "Raw_23",
+    "Raw_24",
+    "Raw_25",
+    "Package_Offered",
+    "Service",
+    "Raw_28",
+    "Broadband_Type",
+    "Router_Charges",
+    "Raw_31",
+    "Raw_32",
+    "Payment_Frequency",
+    "Payment_Method",
+    "Contract_Duration",
+    "Calling_Feature",
+    "Raw_37",
+    "Bill_Cost",
+    "Additional_Notes",
+    "Lead_Source"
 ]
 
 EXPECTED_COLUMN_COUNT = 40
@@ -114,7 +113,7 @@ FINAL_RESULTS = [
 
 
 # ==========================================================
-# QA QUESTIONS
+# 28 QA QUESTIONS
 # ==========================================================
 
 QA_QUESTIONS = [
@@ -205,10 +204,6 @@ if "dashboard_answers" not in st.session_state:
 
 if "dashboard_loaded" not in st.session_state:
     st.session_state["dashboard_loaded"] = False
-
-# ----------------------------------------------------------
-# Google row caches
-# ----------------------------------------------------------
 
 if "google_record_rows" not in st.session_state:
     st.session_state["google_record_rows"] = {}
@@ -311,6 +306,7 @@ def sale_report_filename(row):
     )
 
     if not sale_date:
+
         sale_date = datetime.now().strftime(
             "%d-%m-%Y"
         )
@@ -337,10 +333,14 @@ def generate_qa_id(row):
     ])
 
     digest = hashlib.sha1(
-        source.encode("utf-8")
+        source.encode(
+            "utf-8"
+        )
     ).hexdigest()[:12]
 
-    return f"QA-{digest.upper()}"
+    return (
+        f"QA-{digest.upper()}"
+    )
 
 
 # ==========================================================
@@ -354,6 +354,7 @@ def prepare_dataframe(df):
     for column in COLUMN_NAMES:
 
         if column not in df.columns:
+
             df[column] = ""
 
     if "QA_ID" not in df.columns:
@@ -481,6 +482,8 @@ def get_google_client():
 
 # ==========================================================
 # GOOGLE WORKSHEET BUNDLE
+#
+# Cached so we don't repeatedly ask Google for metadata.
 # ==========================================================
 
 @st.cache_resource
@@ -492,7 +495,6 @@ def get_google_sheet_bundle():
         GOOGLE_SHEET_ID
     )
 
-    # One metadata call
     existing_worksheets = (
         spreadsheet.worksheets()
     )
@@ -503,7 +505,7 @@ def get_google_sheet_bundle():
     }
 
     # ------------------------------------------------------
-    # QA Records
+    # QA RECORDS
     # ------------------------------------------------------
 
     records_headers = (
@@ -548,7 +550,7 @@ def get_google_sheet_bundle():
         ] = worksheet
 
     # ------------------------------------------------------
-    # QA Answers
+    # QA ANSWERS
     # ------------------------------------------------------
 
     answer_headers = (
@@ -580,7 +582,7 @@ def get_google_sheet_bundle():
         ] = worksheet
 
     # ------------------------------------------------------
-    # QA Parameters
+    # QA PARAMETERS
     # ------------------------------------------------------
 
     parameter_headers = [
@@ -633,7 +635,7 @@ def get_google_sheet_bundle():
         ] = worksheet
 
     # ------------------------------------------------------
-    # Agent Summary
+    # AGENT SUMMARY
     # ------------------------------------------------------
 
     summary_headers = [
@@ -683,7 +685,7 @@ def get_google_sheet_bundle():
 
 
 # ==========================================================
-# INITIALISE ALIAS
+# BACKWARD COMPATIBILITY
 # ==========================================================
 
 def initialise_google_sheets():
@@ -707,7 +709,9 @@ def column_letter(number):
         )
 
         result = (
-            chr(65 + remainder)
+            chr(
+                65 + remainder
+            )
             + result
         )
 
@@ -715,12 +719,16 @@ def column_letter(number):
 
 
 # ==========================================================
-# SALE ROW → GOOGLE
+# SALE ROW → GOOGLE VALUES
 # ==========================================================
 
 def row_to_google_values(row):
 
     values = []
+
+    # ------------------------------------------------------
+    # 40 original columns
+    # ------------------------------------------------------
 
     for column in COLUMN_NAMES:
 
@@ -730,6 +738,10 @@ def row_to_google_values(row):
                 column
             )
         )
+
+    # ------------------------------------------------------
+    # QA/report fields
+    # ------------------------------------------------------
 
     extra_columns = [
         "QA_ID",
@@ -787,7 +799,7 @@ def row_to_google_values(row):
 
 
 # ==========================================================
-# ANSWERS → GOOGLE
+# ANSWERS → GOOGLE VALUES
 # ==========================================================
 
 def answers_to_google_values(
@@ -819,7 +831,10 @@ def answers_to_google_values(
 
 
 # ==========================================================
-# BUILD GOOGLE ROW CACHE
+# BUILD ROW CACHE
+#
+# This performs two full-sheet reads only when we explicitly
+# sync/reload history.
 # ==========================================================
 
 def build_google_row_caches():
@@ -834,11 +849,11 @@ def build_google_row_caches():
         "answers"
     ]
 
-    record_values = (
+    records = (
         records_ws.get_all_records()
     )
 
-    answer_values = (
+    answers = (
         answers_ws.get_all_records()
     )
 
@@ -846,7 +861,7 @@ def build_google_row_caches():
     answer_rows = {}
 
     for index, record in enumerate(
-        record_values,
+        records,
         start=2
     ):
 
@@ -864,7 +879,7 @@ def build_google_row_caches():
             ] = index
 
     for index, record in enumerate(
-        answer_values,
+        answers,
         start=2
     ):
 
@@ -891,16 +906,18 @@ def build_google_row_caches():
 
     st.session_state[
         "google_next_record_row"
-    ] = len(record_values) + 2
+    ] = len(records) + 2
 
     st.session_state[
         "google_next_answer_row"
-    ] = len(answer_values) + 2
+    ] = len(answers) + 2
 
 
 # ==========================================================
 # SAVE SALE TO GOOGLE
-# NO FULL SHEET READ
+#
+# IMPORTANT:
+# Once row caches exist, this performs NO READS.
 # ==========================================================
 
 def save_sale_to_google(
@@ -923,12 +940,12 @@ def save_sale_to_google(
         "QA_ID"
     )
 
-    # If caches don't exist yet, do the initial read once.
+    # ------------------------------------------------------
+    # Initialise cache if necessary.
+    # ------------------------------------------------------
+
     if (
-        not st.session_state[
-            "google_record_rows"
-        ]
-        and st.session_state.get(
+        st.session_state.get(
             "google_next_record_row"
         ) is None
     ):
@@ -1064,18 +1081,30 @@ def sync_from_google():
     )
 
     # ------------------------------------------------------
-    # Empty sheet
+    # Empty
     # ------------------------------------------------------
 
     if not records:
 
-        st.session_state[
-            "google_record_rows"
-        ] = {}
+        record_rows = {}
 
-        st.session_state[
-            "google_next_record_row"
-        ] = 2
+        for index, record in enumerate(
+            records,
+            start=2
+        ):
+
+            qa_id = str(
+                record.get(
+                    "QA_ID",
+                    ""
+                )
+            ).strip()
+
+            if qa_id:
+
+                record_rows[
+                    qa_id
+                ] = index
 
         answer_rows = {}
 
@@ -1098,8 +1127,16 @@ def sync_from_google():
                 ] = index
 
         st.session_state[
+            "google_record_rows"
+        ] = record_rows
+
+        st.session_state[
             "google_answer_rows"
         ] = answer_rows
+
+        st.session_state[
+            "google_next_record_row"
+        ] = 2
 
         st.session_state[
             "google_next_answer_row"
@@ -1109,6 +1146,10 @@ def sync_from_google():
 
         return None, {}
 
+    # ------------------------------------------------------
+    # Main dataframe
+    # ------------------------------------------------------
+
     records_df = pd.DataFrame(
         records
     )
@@ -1116,10 +1157,6 @@ def sync_from_google():
     records_df = prepare_dataframe(
         records_df
     )
-
-    # ------------------------------------------------------
-    # Score
-    # ------------------------------------------------------
 
     records_df[
         "QA_Score"
@@ -1129,10 +1166,6 @@ def sync_from_google():
         ],
         errors="coerce"
     ).astype(object)
-
-    # ------------------------------------------------------
-    # Fatal
-    # ------------------------------------------------------
 
     records_df[
         "Fatal_Failure"
@@ -1210,7 +1243,7 @@ def sync_from_google():
     ] = len(answer_records) + 2
 
     # ------------------------------------------------------
-    # Answers
+    # QA answers dictionary
     # ------------------------------------------------------
 
     qa_answers = {}
@@ -1252,10 +1285,6 @@ def sync_from_google():
                 parameter_id
             ] = answer
 
-        # --------------------------------------------------
-        # Report information from QA Records
-        # --------------------------------------------------
-
         matching = records_df[
             records_df[
                 "QA_ID"
@@ -1267,62 +1296,86 @@ def sync_from_google():
 
             row = matching.iloc[0]
 
-            answers["final_result"] = safe_value(
+            answers[
+                "final_result"
+            ] = safe_value(
                 row,
                 "Final_QA_Result"
             )
 
-            answers["comments"] = safe_value(
+            answers[
+                "comments"
+            ] = safe_value(
                 row,
                 "QA_Comments"
             )
 
-            answers["evaluator_name"] = safe_value(
+            answers[
+                "evaluator_name"
+            ] = safe_value(
                 row,
                 "Evaluator_Name"
             )
 
-            answers["campaign_line"] = safe_value(
+            answers[
+                "campaign_line"
+            ] = safe_value(
                 row,
                 "Campaign_Line"
             )
 
-            answers["call_disposition"] = safe_value(
+            answers[
+                "call_disposition"
+            ] = safe_value(
                 row,
                 "Call_Disposition"
             )
 
-            answers["next_review_date"] = safe_value(
+            answers[
+                "next_review_date"
+            ] = safe_value(
                 row,
                 "Next_Review_Date"
             )
 
-            answers["call_summary"] = safe_value(
+            answers[
+                "call_summary"
+            ] = safe_value(
                 row,
                 "Call_Summary"
             )
 
-            answers["goods"] = safe_value(
+            answers[
+                "goods"
+            ] = safe_value(
                 row,
                 "Goods"
             )
 
-            answers["bads"] = safe_value(
+            answers[
+                "bads"
+            ] = safe_value(
                 row,
                 "Bads"
             )
 
-            answers["dos"] = safe_value(
+            answers[
+                "dos"
+            ] = safe_value(
                 row,
                 "Dos"
             )
 
-            answers["donts"] = safe_value(
+            answers[
+                "donts"
+            ] = safe_value(
                 row,
                 "Donts"
             )
 
-            answers["actionable_coaching"] = safe_value(
+            answers[
+                "actionable_coaching"
+            ] = safe_value(
                 row,
                 "Actionable_Coaching"
             )
@@ -1349,7 +1402,9 @@ def get_parameter_performance(
 ):
 
     completed = df[
-        df["QA_Status"]
+        df[
+            "QA_Status"
+        ]
         == "Completed"
     ].copy()
 
@@ -1425,95 +1480,15 @@ def get_parameter_performance(
 
 
 # ==========================================================
-# CREATE INDIVIDUAL SALE EXCEL
+# INDIVIDUAL EXCEL REPORT
 # ==========================================================
 
 def create_individual_excel(
     sale,
     answers
 ):
-    """
-    Creates a beautifully formatted single-sale QA report.
-    """
 
     output = BytesIO()
-
-    base_name = sale_report_filename(
-        sale
-    )
-
-    # ------------------------------------------------------
-    # Main report values
-    # ------------------------------------------------------
-
-    report_values = {
-        "Agent Name": safe_value(
-            sale,
-            "Agent"
-        ),
-        "Sale Date": safe_value(
-            sale,
-            "Sale_Date"
-        ),
-        "Campaign / Line": safe_value(
-            sale,
-            "Campaign_Line"
-        ),
-        "Evaluator Name": safe_value(
-            sale,
-            "Evaluator_Name"
-        ),
-        "Customer Name": safe_value(
-            sale,
-            "Customer_Name"
-        ),
-        "Call Disposition": safe_value(
-            sale,
-            "Call_Disposition"
-        ),
-        "CLI": safe_value(
-            sale,
-            "Phone"
-        ),
-        "Next Review Date": safe_value(
-            sale,
-            "Next_Review_Date"
-        )
-    }
-
-    call_summary = safe_value(
-        sale,
-        "Call_Summary"
-    )
-
-    goods = safe_value(
-        sale,
-        "Goods"
-    )
-
-    bads = safe_value(
-        sale,
-        "Bads"
-    )
-
-    dos = safe_value(
-        sale,
-        "Dos"
-    )
-
-    donts = safe_value(
-        sale,
-        "Donts"
-    )
-
-    coaching = safe_value(
-        sale,
-        "Actionable_Coaching"
-    )
-
-    # ------------------------------------------------------
-    # Workbook
-    # ------------------------------------------------------
 
     with pd.ExcelWriter(
         output,
@@ -1527,19 +1502,17 @@ def create_individual_excel(
         )
 
         # --------------------------------------------------
-        # Palette
+        # Colours
         # --------------------------------------------------
 
         navy = "#17365D"
         blue = "#2F75B5"
         light_blue = "#D9EAF7"
-        light_grey = "#F3F6F9"
-        medium_grey = "#D9E1F2"
-        dark_grey = "#404040"
         green = "#E2F0D9"
         red = "#FCE4D6"
-        gold = "#FFF2CC"
         white = "#FFFFFF"
+        grey = "#404040"
+        border = "#D9E1F2"
 
         # --------------------------------------------------
         # Formats
@@ -1557,9 +1530,8 @@ def create_individual_excel(
         subtitle_format = workbook.add_format({
             "italic": True,
             "font_size": 10,
-            "font_color": dark_grey,
-            "align": "center",
-            "valign": "vcenter"
+            "font_color": grey,
+            "align": "center"
         })
 
         label_format = workbook.add_format({
@@ -1567,15 +1539,16 @@ def create_individual_excel(
             "font_color": navy,
             "bg_color": light_blue,
             "border": 1,
-            "border_color": medium_grey,
+            "border_color": border,
+            "text_wrap": True,
             "valign": "top"
         })
 
         value_format = workbook.add_format({
-            "font_color": dark_grey,
+            "font_color": grey,
             "bg_color": white,
             "border": 1,
-            "border_color": medium_grey,
+            "border_color": border,
             "text_wrap": True,
             "valign": "top"
         })
@@ -1587,15 +1560,14 @@ def create_individual_excel(
             "bg_color": blue,
             "border": 1,
             "border_color": blue,
-            "align": "left",
             "valign": "vcenter"
         })
 
         body_format = workbook.add_format({
-            "font_color": dark_grey,
+            "font_color": grey,
             "bg_color": white,
             "border": 1,
-            "border_color": medium_grey,
+            "border_color": border,
             "text_wrap": True,
             "valign": "top"
         })
@@ -1605,8 +1577,7 @@ def create_individual_excel(
             "font_color": "#2F6B2F",
             "bg_color": green,
             "border": 1,
-            "border_color": medium_grey,
-            "align": "left"
+            "border_color": border
         })
 
         bads_header_format = workbook.add_format({
@@ -1614,36 +1585,17 @@ def create_individual_excel(
             "font_color": "#9C0006",
             "bg_color": red,
             "border": 1,
-            "border_color": medium_grey,
-            "align": "left"
+            "border_color": border
         })
 
-        dos_header_format = workbook.add_format({
-            "bold": True,
-            "font_color": "#2F6B2F",
-            "bg_color": green,
-            "border": 1,
-            "border_color": medium_grey,
-            "align": "left"
-        })
-
-        donts_header_format = workbook.add_format({
-            "bold": True,
-            "font_color": "#9C0006",
-            "bg_color": red,
-            "border": 1,
-            "border_color": medium_grey,
-            "align": "left"
-        })
-
-        small_note_format = workbook.add_format({
+        small_format = workbook.add_format({
             "font_size": 9,
-            "font_color": dark_grey,
-            "italic": True
+            "italic": True,
+            "font_color": "#666666"
         })
 
         # --------------------------------------------------
-        # Column widths
+        # Sheet layout
         # --------------------------------------------------
 
         worksheet.set_column(
@@ -1666,10 +1618,6 @@ def create_individual_excel(
             34
         )
 
-        # --------------------------------------------------
-        # Page / print settings
-        # --------------------------------------------------
-
         worksheet.hide_gridlines(2)
 
         worksheet.set_landscape()
@@ -1687,7 +1635,7 @@ def create_individual_excel(
         )
 
         worksheet.set_header(
-            "&C&\"Calibri,Bold\"Sparta Telecom - Call Quality Evaluation"
+            "&CSparta Telecom - Call Quality Evaluation"
         )
 
         worksheet.set_footer(
@@ -1695,23 +1643,13 @@ def create_individual_excel(
         )
 
         # --------------------------------------------------
-        # TITLE
+        # Title
         # --------------------------------------------------
 
         worksheet.merge_range(
             "A1:D2",
             "CALL QUALITY EVALUATION & FEEDBACK REPORT",
             title_format
-        )
-
-        worksheet.set_row(
-            0,
-            25
-        )
-
-        worksheet.set_row(
-            1,
-            25
         )
 
         worksheet.merge_range(
@@ -1721,43 +1659,64 @@ def create_individual_excel(
         )
 
         # --------------------------------------------------
-        # HEADER INFORMATION
+        # Header information
         # --------------------------------------------------
 
-        header_rows = [
+        metadata = [
             [
                 "Agent Name:",
-                report_values["Agent Name"],
+                safe_value(
+                    sale,
+                    "Agent"
+                ),
                 "Sale Date",
-                report_values["Sale Date"]
+                safe_value(
+                    sale,
+                    "Sale_Date"
+                )
             ],
             [
                 "Campaign / Line:",
-                report_values["Campaign / Line"],
+                safe_value(
+                    sale,
+                    "Campaign_Line"
+                ),
                 "Evaluator Name:",
-                report_values["Evaluator Name"]
+                safe_value(
+                    sale,
+                    "Evaluator_Name"
+                )
             ],
             [
                 "Customer Name",
-                report_values["Customer Name"],
+                safe_value(
+                    sale,
+                    "Customer_Name"
+                ),
                 "Call Disposition:",
-                report_values["Call Disposition"]
+                safe_value(
+                    sale,
+                    "Call_Disposition"
+                )
             ],
             [
                 "CLI",
-                report_values["CLI"],
+                safe_value(
+                    sale,
+                    "Phone"
+                ),
                 "Next Review Date:",
-                report_values["Next Review Date"]
+                safe_value(
+                    sale,
+                    "Next_Review_Date"
+                )
             ]
         ]
 
-        start_row = 4
-
-        for row_offset, row_values in enumerate(
-            header_rows
+        for row_number, row_values in enumerate(
+            metadata,
+            start=4
         ):
-
-            row_number = start_row + row_offset
 
             worksheet.write(
                 row_number,
@@ -1789,179 +1748,135 @@ def create_individual_excel(
 
             worksheet.set_row(
                 row_number,
-                30
+                32
             )
 
         # --------------------------------------------------
-        # SECTION 1
+        # Call Summary
         # --------------------------------------------------
 
-        section_row = 9
-
         worksheet.merge_range(
-            f"A{section_row + 1}:D{section_row + 1}",
+            "A10:D10",
             "1. Call Summary & Context",
             section_format
         )
 
         worksheet.merge_range(
-            f"A{section_row + 2}:D{section_row + 5}",
-            call_summary or "No call summary provided.",
+            "A11:D15",
+            safe_value(
+                sale,
+                "Call_Summary"
+            ) or "No call summary provided.",
             body_format
         )
 
         # --------------------------------------------------
-        # SECTION 2
+        # Goods / Bads
         # --------------------------------------------------
 
-        section_row = 15
-
         worksheet.merge_range(
-            f"A{section_row + 1}:D{section_row + 1}",
+            "A17:D17",
             "2. Key Highlights: What Went Well vs. Areas Needing Improvement",
             section_format
         )
 
-        worksheet.write(
-            section_row + 1,
-            0,
+        worksheet.merge_range(
+            "A18:B18",
             "GOODS (Strengths & Best Practices)",
             goods_header_format
         )
 
         worksheet.merge_range(
-            section_row + 1,
-            0,
-            section_row + 1,
-            1,
-            "GOODS (Strengths & Best Practices)",
-            goods_header_format
-        )
-
-        worksheet.merge_range(
-            section_row + 1,
-            2,
-            section_row + 1,
-            3,
+            "C18:D18",
             "BADS (Errors & Areas to Improve)",
             bads_header_format
         )
 
         worksheet.merge_range(
-            section_row + 2,
-            0,
-            section_row + 6,
-            1,
-            goods or "No strengths recorded.",
+            "A19:B25",
+            safe_value(
+                sale,
+                "Goods"
+            ) or "No strengths recorded.",
             body_format
         )
 
         worksheet.merge_range(
-            section_row + 2,
-            2,
-            section_row + 6,
-            3,
-            bads or "No improvement areas recorded.",
+            "C19:D25",
+            safe_value(
+                sale,
+                "Bads"
+            ) or "No improvement areas recorded.",
             body_format
         )
 
         # --------------------------------------------------
-        # SECTION 3
+        # Do's / Don'ts
         # --------------------------------------------------
 
-        section_row = 24
-
         worksheet.merge_range(
-            f"A{section_row + 1}:D{section_row + 1}",
+            "A27:D27",
             "3. Actionable Coaching: Do's & Don'ts Playbook",
             section_format
         )
 
         worksheet.merge_range(
-            section_row + 1,
-            0,
-            section_row + 1,
-            1,
+            "A28:B28",
             "DO'S (Recommended Scripts & Behaviours)",
-            dos_header_format
+            goods_header_format
         )
 
         worksheet.merge_range(
-            section_row + 1,
-            2,
-            section_row + 1,
-            3,
+            "C28:D28",
             "DON'TS (Strictly Avoid)",
-            donts_header_format
+            bads_header_format
         )
 
         worksheet.merge_range(
-            section_row + 2,
-            0,
-            section_row + 7,
-            1,
-            dos or "No recommended behaviours recorded.",
+            "A29:B36",
+            safe_value(
+                sale,
+                "Dos"
+            ) or "No recommended behaviours recorded.",
             body_format
         )
 
         worksheet.merge_range(
-            section_row + 2,
-            2,
-            section_row + 7,
-            3,
-            donts or "No prohibited behaviours recorded.",
+            "C29:D36",
+            safe_value(
+                sale,
+                "Donts"
+            ) or "No prohibited behaviours recorded.",
             body_format
         )
 
         # --------------------------------------------------
-        # ACTIONABLE COACHING
+        # Coaching
         # --------------------------------------------------
 
-        section_row = 33
-
         worksheet.merge_range(
-            f"A{section_row + 1}:D{section_row + 1}",
+            "A38:D38",
             "4. Actionable Coaching Summary",
             section_format
         )
 
         worksheet.merge_range(
-            f"A{section_row + 2}:D{section_row + 6}",
-            coaching or "No additional coaching recorded.",
+            "A39:D44",
+            safe_value(
+                sale,
+                "Actionable_Coaching"
+            ) or "No additional coaching recorded.",
             body_format
         )
 
         # --------------------------------------------------
-        # QA RESULT SUMMARY
+        # QA Outcome
         # --------------------------------------------------
 
-        section_row = 40
-
         worksheet.merge_range(
-            f"A{section_row + 1}:D{section_row + 1}",
+            "A46:D46",
             "5. QA Outcome",
             section_format
-        )
-
-        worksheet.merge_range(
-            f"A{section_row + 2}:B{section_row + 2}",
-            "Final QA Result",
-            label_format
-        )
-
-        worksheet.merge_range(
-            f"C{section_row + 2}:D{section_row + 2}",
-            safe_value(
-                sale,
-                "Final_QA_Result"
-            ),
-            value_format
-        )
-
-        worksheet.merge_range(
-            f"A{section_row + 3}:B{section_row + 3}",
-            "Quality Score",
-            label_format
         )
 
         score_value = sale.get(
@@ -1990,23 +1905,40 @@ def create_individual_excel(
                 )
 
         worksheet.merge_range(
-            f"C{section_row + 3}:D{section_row + 3}",
+            "A47:B47",
+            "Final QA Result",
+            label_format
+        )
+
+        worksheet.merge_range(
+            "C47:D47",
+            safe_value(
+                sale,
+                "Final_QA_Result"
+            ),
+            value_format
+        )
+
+        worksheet.merge_range(
+            "A48:B48",
+            "Quality Score",
+            label_format
+        )
+
+        worksheet.merge_range(
+            "C48:D48",
             score_display,
             value_format
         )
 
         worksheet.merge_range(
-            f"A{section_row + 5}:D{section_row + 5}",
+            "A50:D50",
             "Generated from Sparta Telecom QA Checker",
-            small_note_format
+            small_format
         )
 
-        # --------------------------------------------------
-        # Print area
-        # --------------------------------------------------
-
         worksheet.print_area(
-            "A1:D46"
+            "A1:D50"
         )
 
     output.seek(0)
@@ -2015,20 +1947,23 @@ def create_individual_excel(
 
 
 # ==========================================================
-# PDF HELPERS
+# PDF SAFE TEXT
 # ==========================================================
 
 def pdf_safe_text(value):
 
     if value is None:
+
         return ""
 
-    text = str(value)
+    text = str(
+        value
+    )
 
     if not text.strip():
+
         return ""
 
-    # Avoid unsupported typographic characters where possible.
     replacements = {
         "\u2013": "-",
         "\u2014": "-",
@@ -2037,7 +1972,7 @@ def pdf_safe_text(value):
         "\u201c": '"',
         "\u201d": '"',
         "\u00a0": " ",
-        "\u2022": "-",
+        "\u2022": "-"
     }
 
     for old, new in replacements.items():
@@ -2047,125 +1982,107 @@ def pdf_safe_text(value):
             new
         )
 
-    return escape(
-        text
-    ).replace(
-        "\n",
-        "<br/>"
+    return (
+        escape(
+            text
+        )
+        .replace(
+            "\n",
+            "<br/>"
+        )
     )
 
 
-def make_pdf_styles():
+# ==========================================================
+# PDF STYLES
+# ==========================================================
+
+def get_pdf_styles():
 
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle(
-        "QAReportTitle",
-        parent=styles["Title"],
-        fontName="Helvetica-Bold",
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor(
-            "#FFFFFF"
-        ),
-        alignment=TA_CENTER,
-        spaceAfter=0
-    )
-
-    subtitle_style = ParagraphStyle(
-        "QAReportSubtitle",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=9,
-        leading=11,
-        textColor=colors.HexColor(
-            "#404040"
-        ),
-        alignment=TA_CENTER,
-        spaceAfter=8
-    )
-
-    section_style = ParagraphStyle(
-        "QAReportSection",
-        parent=styles["Heading2"],
-        fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=15,
-        textColor=colors.HexColor(
-            "#FFFFFF"
-        ),
-        spaceBefore=7,
-        spaceAfter=0
-    )
-
-    label_style = ParagraphStyle(
-        "QAReportLabel",
-        parent=styles["Normal"],
-        fontName="Helvetica-Bold",
-        fontSize=8.5,
-        leading=11,
-        textColor=colors.HexColor(
-            "#17365D"
-        )
-    )
-
-    value_style = ParagraphStyle(
-        "QAReportValue",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=8.5,
-        leading=11,
-        textColor=colors.HexColor(
-            "#404040"
-        )
-    )
-
-    body_style = ParagraphStyle(
-        "QAReportBody",
-        parent=styles["BodyText"],
-        fontName="Helvetica",
-        fontSize=9,
-        leading=13,
-        textColor=colors.HexColor(
-            "#404040"
-        ),
-        spaceAfter=0
-    )
-
-    small_style = ParagraphStyle(
-        "QAReportSmall",
-        parent=styles["Normal"],
-        fontName="Helvetica-Oblique",
-        fontSize=7.5,
-        leading=10,
-        textColor=colors.HexColor(
-            "#666666"
-        ),
-        alignment=TA_CENTER
-    )
-
-    column_header_style = ParagraphStyle(
-        "QAReportColumnHeader",
-        parent=styles["Normal"],
-        fontName="Helvetica-Bold",
-        fontSize=9,
-        leading=11,
-        textColor=colors.HexColor(
-            "#17365D"
-        )
-    )
-
     return {
-        "title": title_style,
-        "subtitle": subtitle_style,
-        "section": section_style,
-        "label": label_style,
-        "value": value_style,
-        "body": body_style,
-        "small": small_style,
-        "column_header": column_header_style
+        "title": ParagraphStyle(
+            "ReportTitle",
+            parent=styles["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=18,
+            leading=22,
+            textColor=colors.white,
+            alignment=TA_CENTER
+        ),
+
+        "subtitle": ParagraphStyle(
+            "ReportSubtitle",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=11,
+            textColor=colors.HexColor(
+                "#404040"
+            ),
+            alignment=TA_CENTER
+        ),
+
+        "section": ParagraphStyle(
+            "ReportSection",
+            parent=styles["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=14,
+            textColor=colors.white
+        ),
+
+        "label": ParagraphStyle(
+            "ReportLabel",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=8.5,
+            leading=11,
+            textColor=colors.HexColor(
+                "#17365D"
+            )
+        ),
+
+        "value": ParagraphStyle(
+            "ReportValue",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=8.5,
+            leading=11,
+            textColor=colors.HexColor(
+                "#404040"
+            )
+        ),
+
+        "body": ParagraphStyle(
+            "ReportBody",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=13,
+            textColor=colors.HexColor(
+                "#404040"
+            )
+        ),
+
+        "small": ParagraphStyle(
+            "ReportSmall",
+            parent=styles["Normal"],
+            fontName="Helvetica-Oblique",
+            fontSize=7.5,
+            leading=10,
+            textColor=colors.HexColor(
+                "#666666"
+            ),
+            alignment=TA_CENTER
+        )
     }
 
+
+# ==========================================================
+# PDF SECTION HEADER
+# ==========================================================
 
 def pdf_section_header(
     text,
@@ -2175,8 +2092,12 @@ def pdf_section_header(
     table = Table(
         [[
             Paragraph(
-                pdf_safe_text(text),
-                styles["section"]
+                pdf_safe_text(
+                    text
+                ),
+                styles[
+                    "section"
+                ]
             )
         ]],
         colWidths=[
@@ -2233,21 +2154,18 @@ def pdf_section_header(
     return table
 
 
+# ==========================================================
+# INDIVIDUAL PDF REPORT
+# ==========================================================
+
 def create_individual_pdf(
     sale,
     answers
 ):
-    """
-    Creates the individual Call Quality Evaluation PDF.
-    """
 
     output = BytesIO()
 
-    base_name = sale_report_filename(
-        sale
-    )
-
-    styles = make_pdf_styles()
+    styles = get_pdf_styles()
 
     doc = SimpleDocTemplate(
         output,
@@ -2260,9 +2178,9 @@ def create_individual_pdf(
 
     story = []
 
-    # ------------------------------------------------------
-    # Title
-    # ------------------------------------------------------
+    # ======================================================
+    # TITLE
+    # ======================================================
 
     title_table = Table(
         [[
@@ -2285,15 +2203,6 @@ def create_individual_pdf(
                 "BACKGROUND",
                 (0, 0),
                 (-1, -1),
-                colors.HexColor(
-                    "#17365D"
-                )
-            ),
-            (
-                "BOX",
-                (0, 0),
-                (-1, -1),
-                0.5,
                 colors.HexColor(
                     "#17365D"
                 )
@@ -2324,9 +2233,16 @@ def create_individual_pdf(
         )
     )
 
-    # ------------------------------------------------------
-    # Header information
-    # ------------------------------------------------------
+    story.append(
+        Spacer(
+            1,
+            3 * mm
+        )
+    )
+
+    # ======================================================
+    # HEADER INFORMATION
+    # ======================================================
 
     metadata = [
         [
@@ -2450,8 +2366,7 @@ def create_individual_pdf(
             56 * mm,
             34 * mm,
             53 * mm
-        ],
-        repeatRows=0
+        ]
     )
 
     metadata_table.setStyle(
@@ -2525,9 +2440,9 @@ def create_individual_pdf(
         )
     )
 
-    # ------------------------------------------------------
-    # Section 1
-    # ------------------------------------------------------
+    # ======================================================
+    # SECTION 1
+    # ======================================================
 
     story.append(
         pdf_section_header(
@@ -2544,7 +2459,8 @@ def create_individual_pdf(
                         sale,
                         "Call_Summary"
                     )
-                    or "No call summary provided."
+                    or
+                    "No call summary provided."
                 ),
                 styles["body"]
             )
@@ -2564,18 +2480,6 @@ def create_individual_pdf(
                 colors.HexColor(
                     "#D9E1F2"
                 )
-            ),
-            (
-                "BACKGROUND",
-                (0, 0),
-                (-1, -1),
-                colors.white
-            ),
-            (
-                "VALIGN",
-                (0, 0),
-                (-1, -1),
-                "TOP"
             ),
             (
                 "LEFTPADDING",
@@ -2615,9 +2519,9 @@ def create_individual_pdf(
         )
     )
 
-    # ------------------------------------------------------
-    # Section 2
-    # ------------------------------------------------------
+    # ======================================================
+    # SECTION 2
+    # ======================================================
 
     story.append(
         pdf_section_header(
@@ -2626,15 +2530,15 @@ def create_individual_pdf(
         )
     )
 
-    goods_header = Table(
+    highlights_header = Table(
         [[
             Paragraph(
                 "GOODS (Strengths & Best Practices)",
-                styles["column_header"]
+                styles["label"]
             ),
             Paragraph(
                 "BADS (Errors & Areas to Improve)",
-                styles["column_header"]
+                styles["label"]
             )
         ]],
         colWidths=[
@@ -2643,7 +2547,7 @@ def create_individual_pdf(
         ]
     )
 
-    goods_header.setStyle(
+    highlights_header.setStyle(
         TableStyle([
             (
                 "BACKGROUND",
@@ -2698,10 +2602,10 @@ def create_individual_pdf(
     )
 
     story.append(
-        goods_header
+        highlights_header
     )
 
-    goods_bads = Table(
+    highlights_body = Table(
         [[
             Paragraph(
                 pdf_safe_text(
@@ -2709,7 +2613,8 @@ def create_individual_pdf(
                         sale,
                         "Goods"
                     )
-                    or "No strengths recorded."
+                    or
+                    "No strengths recorded."
                 ),
                 styles["body"]
             ),
@@ -2719,7 +2624,8 @@ def create_individual_pdf(
                         sale,
                         "Bads"
                     )
-                    or "No improvement areas recorded."
+                    or
+                    "No improvement areas recorded."
                 ),
                 styles["body"]
             )
@@ -2730,7 +2636,7 @@ def create_individual_pdf(
         ]
     )
 
-    goods_bads.setStyle(
+    highlights_body.setStyle(
         TableStyle([
             (
                 "GRID",
@@ -2775,7 +2681,7 @@ def create_individual_pdf(
     )
 
     story.append(
-        goods_bads
+        highlights_body
     )
 
     story.append(
@@ -2785,9 +2691,9 @@ def create_individual_pdf(
         )
     )
 
-    # ------------------------------------------------------
-    # Section 3
-    # ------------------------------------------------------
+    # ======================================================
+    # SECTION 3
+    # ======================================================
 
     story.append(
         pdf_section_header(
@@ -2796,15 +2702,15 @@ def create_individual_pdf(
         )
     )
 
-    dos_donts_header = Table(
+    coaching_header = Table(
         [[
             Paragraph(
                 "DO'S (Recommended Scripts & Behaviours)",
-                styles["column_header"]
+                styles["label"]
             ),
             Paragraph(
                 "DON'TS (Strictly Avoid)",
-                styles["column_header"]
+                styles["label"]
             )
         ]],
         colWidths=[
@@ -2813,7 +2719,7 @@ def create_individual_pdf(
         ]
     )
 
-    dos_donts_header.setStyle(
+    coaching_header.setStyle(
         TableStyle([
             (
                 "BACKGROUND",
@@ -2868,10 +2774,10 @@ def create_individual_pdf(
     )
 
     story.append(
-        dos_donts_header
+        coaching_header
     )
 
-    dos_donts = Table(
+    coaching_body = Table(
         [[
             Paragraph(
                 pdf_safe_text(
@@ -2879,7 +2785,8 @@ def create_individual_pdf(
                         sale,
                         "Dos"
                     )
-                    or "No recommended behaviours recorded."
+                    or
+                    "No recommended behaviours recorded."
                 ),
                 styles["body"]
             ),
@@ -2889,7 +2796,8 @@ def create_individual_pdf(
                         sale,
                         "Donts"
                     )
-                    or "No prohibited behaviours recorded."
+                    or
+                    "No prohibited behaviours recorded."
                 ),
                 styles["body"]
             )
@@ -2900,7 +2808,7 @@ def create_individual_pdf(
         ]
     )
 
-    dos_donts.setStyle(
+    coaching_body.setStyle(
         TableStyle([
             (
                 "GRID",
@@ -2945,7 +2853,7 @@ def create_individual_pdf(
     )
 
     story.append(
-        dos_donts
+        coaching_body
     )
 
     story.append(
@@ -2955,9 +2863,9 @@ def create_individual_pdf(
         )
     )
 
-    # ------------------------------------------------------
-    # Section 4 - Coaching
-    # ------------------------------------------------------
+    # ======================================================
+    # SECTION 4
+    # ======================================================
 
     story.append(
         pdf_section_header(
@@ -2966,7 +2874,7 @@ def create_individual_pdf(
         )
     )
 
-    coaching_table = Table(
+    coaching_summary = Table(
         [[
             Paragraph(
                 pdf_safe_text(
@@ -2974,7 +2882,8 @@ def create_individual_pdf(
                         sale,
                         "Actionable_Coaching"
                     )
-                    or "No additional coaching recorded."
+                    or
+                    "No additional coaching recorded."
                 ),
                 styles["body"]
             )
@@ -2984,7 +2893,7 @@ def create_individual_pdf(
         ]
     )
 
-    coaching_table.setStyle(
+    coaching_summary.setStyle(
         TableStyle([
             (
                 "BOX",
@@ -3023,7 +2932,7 @@ def create_individual_pdf(
     )
 
     story.append(
-        coaching_table
+        coaching_summary
     )
 
     story.append(
@@ -3033,9 +2942,9 @@ def create_individual_pdf(
         )
     )
 
-    # ------------------------------------------------------
-    # Section 5 - Outcome
-    # ------------------------------------------------------
+    # ======================================================
+    # SECTION 5
+    # ======================================================
 
     story.append(
         pdf_section_header(
@@ -3069,8 +2978,8 @@ def create_individual_pdf(
                 score_value
             )
 
-    outcome = [
-        [
+    outcome = Table(
+        [[
             Paragraph(
                 "Final QA Result",
                 styles["label"]
@@ -3094,11 +3003,7 @@ def create_individual_pdf(
                 ),
                 styles["value"]
             )
-        ]
-    ]
-
-    outcome_table = Table(
-        outcome,
+        ]],
         colWidths=[
             38 * mm,
             49 * mm,
@@ -3107,7 +3012,7 @@ def create_individual_pdf(
         ]
     )
 
-    outcome_table.setStyle(
+    outcome.setStyle(
         TableStyle([
             (
                 "GRID",
@@ -3168,7 +3073,7 @@ def create_individual_pdf(
     )
 
     story.append(
-        outcome_table
+        outcome
     )
 
     story.append(
@@ -3185,11 +3090,14 @@ def create_individual_pdf(
         )
     )
 
-    # ------------------------------------------------------
-    # Footer
-    # ------------------------------------------------------
+    # ======================================================
+    # FOOTER
+    # ======================================================
 
-    def add_page_number(canvas, doc):
+    def draw_footer(
+        canvas,
+        doc
+    ):
 
         canvas.saveState()
 
@@ -3220,9 +3128,253 @@ def create_individual_pdf(
 
     doc.build(
         story,
-        onFirstPage=add_page_number,
-        onLaterPages=add_page_number
+        onFirstPage=draw_footer,
+        onLaterPages=draw_footer
     )
+
+    output.seek(0)
+
+    return output
+
+
+# ==========================================================
+# ALL QA EXCEL EXPORT
+# ==========================================================
+
+def create_all_excel(
+    df,
+    qa_answers
+):
+
+    output = BytesIO()
+
+    # ------------------------------------------------------
+    # Results sheet
+    # ------------------------------------------------------
+
+    results_columns = [
+        "QA_ID",
+        "Serial_No",
+        "Sale_Date",
+        "Agent",
+        "Verifier",
+        "Company",
+        "Customer_Name",
+        "Phone",
+        "Current_Provider",
+        "Customer_Address",
+        "Package_Offered",
+        "Service",
+        "Broadband_Type",
+        "Router_Charges",
+        "Payment_Frequency",
+        "Payment_Method",
+        "Contract_Duration",
+        "Calling_Feature",
+        "Bill_Cost",
+        "Lead_Source",
+        "QA_Status",
+        "QA_Score",
+        "Fatal_Failure",
+        "Final_QA_Result",
+        "Evaluator_Name",
+        "Campaign_Line",
+        "Call_Disposition",
+        "Next_Review_Date",
+        "QA_Comments"
+    ]
+
+    available_columns = [
+        column
+        for column in results_columns
+        if column in df.columns
+    ]
+
+    results_df = df[
+        available_columns
+    ].copy()
+
+    # ------------------------------------------------------
+    # Detailed
+    # ------------------------------------------------------
+
+    detailed_rows = []
+
+    for _, row in df.iterrows():
+
+        qa_id = row[
+            "QA_ID"
+        ]
+
+        answers = qa_answers.get(
+            qa_id,
+            {}
+        )
+
+        detailed_row = {
+            "QA_ID": qa_id,
+            "Sale_Date": safe_value(
+                row,
+                "Sale_Date"
+            ),
+            "Agent": safe_value(
+                row,
+                "Agent"
+            ),
+            "Verifier": safe_value(
+                row,
+                "Verifier"
+            ),
+            "Customer_Name": safe_value(
+                row,
+                "Customer_Name"
+            ),
+            "Phone": safe_value(
+                row,
+                "Phone"
+            ),
+            "Current_Provider": safe_value(
+                row,
+                "Current_Provider"
+            ),
+            "Package_Offered": safe_value(
+                row,
+                "Package_Offered"
+            ),
+            "Service": safe_value(
+                row,
+                "Service"
+            ),
+            "Broadband_Type": safe_value(
+                row,
+                "Broadband_Type"
+            ),
+            "QA_Status": safe_value(
+                row,
+                "QA_Status"
+            ),
+            "QA_Score": row.get(
+                "QA_Score",
+                ""
+            ),
+            "Fatal_Failure": row.get(
+                "Fatal_Failure",
+                ""
+            ),
+            "Final_QA_Result": safe_value(
+                row,
+                "Final_QA_Result"
+            ),
+            "QA_Comments": safe_value(
+                row,
+                "QA_Comments"
+            )
+        }
+
+        for parameter_id in range(
+            1,
+            29
+        ):
+
+            detailed_row[
+                f"Parameter_{parameter_id}"
+            ] = answers.get(
+                parameter_id,
+                "Yes"
+            )
+
+        detailed_rows.append(
+            detailed_row
+        )
+
+    detailed_df = pd.DataFrame(
+        detailed_rows
+    )
+
+    with pd.ExcelWriter(
+        output,
+        engine="xlsxwriter"
+    ) as writer:
+
+        results_df.to_excel(
+            writer,
+            sheet_name="QA Results",
+            index=False
+        )
+
+        detailed_df.to_excel(
+            writer,
+            sheet_name="Detailed QA",
+            index=False
+        )
+
+        workbook = writer.book
+
+        header_format = workbook.add_format({
+            "bold": True,
+            "text_wrap": True,
+            "valign": "top"
+        })
+
+        for sheet_name, dataframe in [
+            (
+                "QA Results",
+                results_df
+            ),
+            (
+                "Detailed QA",
+                detailed_df
+            )
+        ]:
+
+            worksheet = writer.sheets[
+                sheet_name
+            ]
+
+            worksheet.freeze_panes(
+                1,
+                0
+            )
+
+            for col_num, column_name in enumerate(
+                dataframe.columns
+            ):
+
+                worksheet.write(
+                    0,
+                    col_num,
+                    column_name,
+                    header_format
+                )
+
+            if not dataframe.empty:
+
+                worksheet.autofilter(
+                    0,
+                    0,
+                    len(dataframe),
+                    len(dataframe.columns) - 1
+                )
+
+            for col_num, column_name in enumerate(
+                dataframe.columns
+            ):
+
+                width = 18
+
+                if column_name in [
+                    "Customer_Name",
+                    "QA_Comments",
+                    "Question"
+                ]:
+
+                    width = 30
+
+                worksheet.set_column(
+                    col_num,
+                    col_num,
+                    width
+                )
 
     output.seek(0)
 
@@ -3296,7 +3448,7 @@ qa_tab, dashboard_tab = st.tabs([
 with qa_tab:
 
     # ======================================================
-    # GOOGLE CONTROLS
+    # GOOGLE SHEET
     # ======================================================
 
     with st.expander(
@@ -3383,11 +3535,12 @@ with qa_tab:
             )
 
             st.caption(
-                "Save and Submit do not perform full-sheet reads."
+                "Submit uses targeted writes and does not "
+                "re-read the full QA tables."
             )
 
     # ======================================================
-    # UPLOAD
+    # DAILY FILE UPLOAD
     # ======================================================
 
     uploaded_file = st.file_uploader(
@@ -3470,7 +3623,7 @@ with qa_tab:
             st.exception(e)
 
     # ======================================================
-    # CURRENT DATA
+    # CURRENT QA DATA
     # ======================================================
 
     df = st.session_state.get(
@@ -3483,7 +3636,7 @@ with qa_tab:
     )
 
     # ======================================================
-    # WORKSPACE
+    # QA WORKSPACE
     # ======================================================
 
     if df is not None:
@@ -3506,7 +3659,9 @@ with qa_tab:
             "QA Dashboard"
         )
 
-        total_sales = len(df)
+        total_sales = len(
+            df
+        )
 
         pending_count = int(
             (
@@ -3593,7 +3748,9 @@ with qa_tab:
             "Find Sale"
         )
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = (
+            st.columns(3)
+        )
 
         with col1:
 
@@ -3615,19 +3772,23 @@ with qa_tab:
                 key="find_agent"
             )
 
-        filtered_df = df.copy()
+        filtered_df = (
+            df.copy()
+        )
 
         if (
             selected_agent
             != "All"
         ):
 
-            filtered_df = filtered_df[
+            filtered_df = (
                 filtered_df[
-                    "Agent"
-                ].astype(str)
-                == selected_agent
-            ]
+                    filtered_df[
+                        "Agent"
+                    ].astype(str)
+                    == selected_agent
+                ]
+            )
 
         with col2:
 
@@ -3643,12 +3804,14 @@ with qa_tab:
 
         if selected_status != "All":
 
-            filtered_df = filtered_df[
+            filtered_df = (
                 filtered_df[
-                    "QA_Status"
+                    filtered_df[
+                        "QA_Status"
+                    ]
+                    == selected_status
                 ]
-                == selected_status
-            ]
+            )
 
         with col3:
 
@@ -3662,12 +3825,14 @@ with qa_tab:
 
         if selected_result != "All":
 
-            filtered_df = filtered_df[
+            filtered_df = (
                 filtered_df[
-                    "Final_QA_Result"
+                    filtered_df[
+                        "Final_QA_Result"
+                    ]
+                    == selected_result
                 ]
-                == selected_result
-            ]
+            )
 
         # ==================================================
         # SALE SELECTOR
@@ -3703,7 +3868,9 @@ with qa_tab:
                     df[
                         "QA_ID"
                     ].astype(str)
-                    == str(qa_id)
+                    == str(
+                        qa_id
+                    )
                 ]
 
                 if matching.empty:
@@ -3714,7 +3881,9 @@ with qa_tab:
 
                 else:
 
-                    sale_row = matching.iloc[0]
+                    sale_row = (
+                        matching.iloc[0]
+                    )
 
                     sale_display[
                         qa_id
@@ -3745,7 +3914,9 @@ with qa_tab:
                 df[
                     "QA_ID"
                 ].astype(str)
-                == str(selected_qa_id)
+                == str(
+                    selected_qa_id
+                )
             ]
 
             if not selected_rows.empty:
@@ -4017,7 +4188,7 @@ with qa_tab:
                     )
 
                 # ==============================================
-                # EXISTING ANSWERS
+                # PREVIOUS ANSWERS
                 # ==============================================
 
                 current_answers = (
@@ -4028,7 +4199,7 @@ with qa_tab:
                 )
 
                 # ==============================================
-                # CHECKLIST
+                # QUALITY CHECKLIST
                 # ==============================================
 
                 st.divider()
@@ -4054,7 +4225,10 @@ with qa_tab:
 
                         question_col, answer_col = (
                             st.columns(
-                                [7.5, 2.5],
+                                [
+                                    7.5,
+                                    2.5
+                                ],
                                 vertical_alignment="center"
                             )
                         )
@@ -4122,7 +4296,7 @@ with qa_tab:
                         st.write("")
 
                     # ==========================================
-                    # REPORT DETAILS
+                    # QA REPORT
                     # ==========================================
 
                     st.divider()
@@ -4303,113 +4477,125 @@ with qa_tab:
 
                     st.write("")
 
-                    save_progress = st.form_submit_button(
-                        "💾 SAVE PROGRESS",
-                        use_container_width=True
-                    )
+                    # ==========================================
+                    # ONE BUTTON
+                    # ==========================================
 
-                    submit_final = st.form_submit_button(
-                        "✅ SUBMIT FINAL QA",
+                    submit_qa = st.form_submit_button(
+                        "✅ SUBMIT",
                         type="primary",
                         use_container_width=True
                     )
 
                 # =================================================
-                # SAVE / SUBMIT
+                # SUBMIT
                 # =================================================
 
-                if (
-                    save_progress
-                    or submit_final
-                ):
+                if submit_qa:
 
-                    answers[
-                        "final_result"
-                    ] = (
+                    # ---------------------------------------------
+                    # Require final result
+                    # ---------------------------------------------
+
+                    if (
                         final_result
-                        if final_result
-                        != "Select Final Result"
-                        else ""
-                    )
+                        == "Select Final Result"
+                    ):
 
-                    answers[
-                        "comments"
-                    ] = comments
-
-                    answers[
-                        "evaluator_name"
-                    ] = evaluator_name
-
-                    answers[
-                        "campaign_line"
-                    ] = campaign_line
-
-                    answers[
-                        "call_disposition"
-                    ] = call_disposition
-
-                    answers[
-                        "next_review_date"
-                    ] = next_review_date
-
-                    answers[
-                        "call_summary"
-                    ] = call_summary
-
-                    answers[
-                        "goods"
-                    ] = goods
-
-                    answers[
-                        "bads"
-                    ] = bads
-
-                    answers[
-                        "dos"
-                    ] = dos
-
-                    answers[
-                        "donts"
-                    ] = donts
-
-                    answers[
-                        "actionable_coaching"
-                    ] = actionable_coaching
-
-                    st.session_state[
-                        "qa_answers"
-                    ][
-                        selected_qa_id
-                    ] = answers
-
-                    df = make_editable_dataframe(
-                        df
-                    )
-
-                    mask = (
-                        df[
-                            "QA_ID"
-                        ].astype(str)
-                        == str(
-                            selected_qa_id
+                        st.error(
+                            "Please select a Final QA Result "
+                            "before submitting."
                         )
-                    )
 
-                    score = calculate_score(
-                        answers
-                    )
+                    else:
 
-                    fatal_failure = (
-                        has_fatal_failure(
+                        # =========================================
+                        # Store all entered information
+                        # =========================================
+
+                        answers[
+                            "final_result"
+                        ] = final_result
+
+                        answers[
+                            "comments"
+                        ] = comments
+
+                        answers[
+                            "evaluator_name"
+                        ] = evaluator_name
+
+                        answers[
+                            "campaign_line"
+                        ] = campaign_line
+
+                        answers[
+                            "call_disposition"
+                        ] = call_disposition
+
+                        answers[
+                            "next_review_date"
+                        ] = next_review_date
+
+                        answers[
+                            "call_summary"
+                        ] = call_summary
+
+                        answers[
+                            "goods"
+                        ] = goods
+
+                        answers[
+                            "bads"
+                        ] = bads
+
+                        answers[
+                            "dos"
+                        ] = dos
+
+                        answers[
+                            "donts"
+                        ] = donts
+
+                        answers[
+                            "actionable_coaching"
+                        ] = actionable_coaching
+
+                        # =========================================
+                        # Calculate QA
+                        # =========================================
+
+                        score = calculate_score(
                             answers
                         )
-                    )
 
-                    # =============================================
-                    # SAVE PROGRESS
-                    # =============================================
+                        fatal_failure = (
+                            has_fatal_failure(
+                                answers
+                            )
+                        )
 
-                    if save_progress:
+                        # =========================================
+                        # Update sale dataframe
+                        # =========================================
+
+                        df = make_editable_dataframe(
+                            df
+                        )
+
+                        mask = (
+                            df[
+                                "QA_ID"
+                            ].astype(str)
+                            == str(
+                                selected_qa_id
+                            )
+                        )
+
+                        df.loc[
+                            mask,
+                            "QA_Status"
+                        ] = "Completed"
 
                         df.loc[
                             mask,
@@ -4423,13 +4609,13 @@ with qa_tab:
 
                         df.loc[
                             mask,
-                            "QA_Comments"
-                        ] = comments
+                            "Final_QA_Result"
+                        ] = final_result
 
                         df.loc[
                             mask,
-                            "QA_Status"
-                        ] = "Quality Pending"
+                            "QA_Comments"
+                        ] = comments
 
                         report_fields = {
                             "Evaluator_Name": evaluator_name,
@@ -4452,108 +4638,33 @@ with qa_tab:
                                 column
                             ] = value
 
+                        # =========================================
+                        # Store locally
+                        # =========================================
+
                         st.session_state[
                             "sales_data"
                         ] = make_editable_dataframe(
                             df
                         )
 
+                        st.session_state[
+                            "qa_answers"
+                        ][
+                            selected_qa_id
+                        ] = answers
+
+                        # =========================================
+                        # Google Sheets
+                        # =========================================
+
+                        google_saved = False
+
                         try:
 
-                            save_sale_to_google(
-                                df[
-                                    mask
-                                ].iloc[0],
-                                answers
-                            )
-
-                            st.success(
-                                "Progress saved successfully "
-                                "to Google Sheets."
-                            )
-
-                        except Exception as e:
-
-                            st.warning(
-                                "Progress was saved in the app, "
-                                "but Google Sheet saving failed."
-                            )
-
-                            st.exception(e)
-
-                    # =============================================
-                    # FINAL SUBMISSION
-                    # =============================================
-
-                    if submit_final:
-
-                        if (
-                            final_result
-                            == "Select Final Result"
-                        ):
-
-                            st.error(
-                                "Please select a Final QA Result "
-                                "before submitting."
-                            )
-
-                        else:
-
-                            df.loc[
-                                mask,
-                                "QA_Status"
-                            ] = "Completed"
-
-                            df.loc[
-                                mask,
-                                "QA_Score"
-                            ] = score
-
-                            df.loc[
-                                mask,
-                                "Fatal_Failure"
-                            ] = fatal_failure
-
-                            df.loc[
-                                mask,
-                                "Final_QA_Result"
-                            ] = final_result
-
-                            df.loc[
-                                mask,
-                                "QA_Comments"
-                            ] = comments
-
-                            report_fields = {
-                                "Evaluator_Name": evaluator_name,
-                                "Campaign_Line": campaign_line,
-                                "Call_Disposition": call_disposition,
-                                "Next_Review_Date": next_review_date,
-                                "Call_Summary": call_summary,
-                                "Goods": goods,
-                                "Bads": bads,
-                                "Dos": dos,
-                                "Donts": donts,
-                                "Actionable_Coaching": actionable_coaching,
-                                "Last_Updated": current_timestamp()
-                            }
-
-                            for column, value in report_fields.items():
-
-                                df.loc[
-                                    mask,
-                                    column
-                                ] = value
-
-                            st.session_state[
-                                "sales_data"
-                            ] = make_editable_dataframe(
-                                df
-                            )
-
-                            google_saved = False
-
-                            try:
+                            with st.spinner(
+                                "Submitting QA..."
+                            ):
 
                                 save_sale_to_google(
                                     df[
@@ -4562,294 +4673,358 @@ with qa_tab:
                                     answers
                                 )
 
-                                google_saved = True
+                            google_saved = True
 
-                            except Exception as e:
+                        except Exception as e:
 
-                                st.warning(
-                                    "QA was completed in the app, "
-                                    "but the Google Sheet save failed."
-                                )
+                            st.error(
+                                "QA was completed locally, "
+                                "but Google Sheet saving failed."
+                            )
 
-                                st.exception(e)
+                            st.exception(e)
 
-                            # ==================================
-                            # Local dashboard update
-                            # ==================================
+                        # =========================================
+                        # Update local dashboard
+                        # =========================================
+
+                        dashboard_df_existing = (
+                            st.session_state.get(
+                                "dashboard_df"
+                            )
+                        )
+
+                        if (
+                            dashboard_df_existing
+                            is not None
+                        ):
 
                             dashboard_df_existing = (
-                                st.session_state.get(
-                                    "dashboard_df"
+                                dashboard_df_existing
+                                .copy()
+                                .astype(object)
+                            )
+
+                            # Make sure every column exists
+                            for column in df.columns:
+
+                                if (
+                                    column
+                                    not in dashboard_df_existing.columns
+                                ):
+
+                                    dashboard_df_existing[
+                                        column
+                                    ] = ""
+
+                            existing_mask = (
+                                dashboard_df_existing[
+                                    "QA_ID"
+                                ].astype(str)
+                                == str(
+                                    selected_qa_id
                                 )
                             )
 
-                            if (
-                                dashboard_df_existing
-                                is not None
-                            ):
+                            updated_sale = (
+                                df[
+                                    mask
+                                ].iloc[0]
+                            )
 
-                                dashboard_df_existing = (
-                                    dashboard_df_existing
-                                    .copy()
-                                    .astype(object)
+                            if existing_mask.any():
+
+                                indices = (
+                                    dashboard_df_existing.index[
+                                        existing_mask
+                                    ]
                                 )
 
-                                existing_mask = (
-                                    dashboard_df_existing[
-                                        "QA_ID"
-                                    ].astype(str)
-                                    == str(
-                                        selected_qa_id
-                                    )
-                                )
-
-                                updated_sale = (
-                                    df[
-                                        mask
-                                    ].iloc[0]
-                                )
-
-                                if existing_mask.any():
-
-                                    matching_indices = (
-                                        dashboard_df_existing.index[
-                                            existing_mask
-                                        ]
-                                    )
-
-                                    for index in matching_indices:
-
-                                        for column in dashboard_df_existing.columns:
-
-                                            if (
-                                                column
-                                                not in updated_sale.index
-                                            ):
-
-                                                continue
-
-                                            value = (
-                                                updated_sale[
-                                                    column
-                                                ]
-                                            )
-
-                                            if pd.isna(
-                                                value
-                                            ):
-
-                                                value = ""
-
-                                            dashboard_df_existing.at[
-                                                index,
-                                                column
-                                            ] = value
-
-                                else:
-
-                                    new_row_data = {}
+                                for index in indices:
 
                                     for column in dashboard_df_existing.columns:
 
                                         if (
                                             column
-                                            in updated_sale.index
+                                            not in updated_sale.index
                                         ):
 
-                                            value = (
-                                                updated_sale[
-                                                    column
-                                                ]
-                                            )
+                                            continue
 
-                                            if pd.isna(
-                                                value
-                                            ):
-
-                                                value = ""
-
-                                            new_row_data[
+                                        value = (
+                                            updated_sale[
                                                 column
-                                            ] = value
-
-                                        else:
-
-                                            new_row_data[
-                                                column
-                                            ] = ""
-
-                                    dashboard_df_existing = (
-                                        pd.concat(
-                                            [
-                                                dashboard_df_existing,
-                                                pd.DataFrame([
-                                                    new_row_data
-                                                ]).astype(object)
-                                            ],
-                                            ignore_index=True
+                                            ]
                                         )
-                                    )
 
-                                st.session_state[
-                                    "dashboard_df"
-                                ] = (
-                                    dashboard_df_existing
-                                )
+                                        if pd.isna(
+                                            value
+                                        ):
 
-                                st.session_state[
-                                    "dashboard_answers"
-                                ][
-                                    selected_qa_id
-                                ] = answers
+                                            value = ""
 
-                            # ==================================
-                            # Result display
-                            # ==================================
+                                        dashboard_df_existing.at[
+                                            index,
+                                            column
+                                        ] = value
 
-                            st.divider()
+                            else:
 
-                            if final_result == "Approved":
+                                new_row = {}
 
-                                st.success(
-                                    "SALE QA COMPLETED — APPROVED"
-                                )
+                                for column in dashboard_df_existing.columns:
 
-                            elif final_result == "Rejected":
+                                    if (
+                                        column
+                                        in updated_sale.index
+                                    ):
 
-                                st.error(
-                                    "SALE QA COMPLETED — REJECTED"
-                                )
+                                        value = (
+                                            updated_sale[
+                                                column
+                                            ]
+                                        )
 
-                            elif final_result == "Cancelled":
+                                        if pd.isna(
+                                            value
+                                        ):
 
-                                st.warning(
-                                    "SALE QA COMPLETED — CANCELLED"
-                                )
+                                            value = ""
 
-                            elif (
-                                final_result
-                                == "Reworked Required"
-                            ):
+                                        new_row[
+                                            column
+                                        ] = value
 
-                                st.warning(
-                                    "SALE QA COMPLETED — REWORK REQUIRED"
-                                )
+                                    else:
 
-                            elif final_result == "Hold":
+                                        new_row[
+                                            column
+                                        ] = ""
 
-                                st.info(
-                                    "SALE QA COMPLETED — ON HOLD"
-                                )
-
-                            col1, col2, col3 = (
-                                st.columns(3)
-                            )
-
-                            with col1:
-
-                                st.metric(
-                                    "Quality Score",
-                                    f"{score:.2f}%"
-                                )
-
-                            with col2:
-
-                                st.metric(
-                                    "Fatal Failure",
-                                    (
-                                        "YES"
-                                        if fatal_failure
-                                        else "NO"
+                                dashboard_df_existing = (
+                                    pd.concat(
+                                        [
+                                            dashboard_df_existing,
+                                            pd.DataFrame([
+                                                new_row
+                                            ]).astype(object)
+                                        ],
+                                        ignore_index=True
                                     )
                                 )
 
-                            with col3:
-
-                                st.metric(
-                                    "Final QA Result",
-                                    final_result
-                                )
-
-                            if google_saved:
-
-                                st.success(
-                                    "✓ QA result saved to Google Sheets."
-                                )
-
-                # ==============================================
-                # INDIVIDUAL REPORT DOWNLOADS
-                # ==============================================
-
-                st.divider()
-
-                st.subheader(
-                    "📄 Download Individual QA Report"
-                )
-
-                # --------------------------------------------------
-                # IMPORTANT:
-                # Build the latest sale data from the dataframe,
-                # so the download reflects what was just entered.
-                # --------------------------------------------------
-
-                latest_sale_rows = df[
-                    df[
-                        "QA_ID"
-                    ].astype(str)
-                    == str(selected_qa_id)
-                ]
-
-                if not latest_sale_rows.empty:
-
-                    latest_sale = (
-                        latest_sale_rows.iloc[0]
-                    )
-
-                    latest_answers = (
-                        st.session_state[
-                            "qa_answers"
-                        ].get(
-                            selected_qa_id,
-                            {}
-                        )
-                    )
-
-                    report_base_name = (
-                        sale_report_filename(
-                            latest_sale
-                        )
-                    )
-
-                    # ------------------------------------------------
-                    # Generate files
-                    # ------------------------------------------------
-
-                    try:
-
-                        individual_excel = (
-                            create_individual_excel(
-                                latest_sale,
-                                latest_answers
+                            st.session_state[
+                                "dashboard_df"
+                            ] = (
+                                dashboard_df_existing
                             )
-                        )
 
-                        individual_pdf = (
-                            create_individual_pdf(
-                                latest_sale,
-                                latest_answers
+                            st.session_state[
+                                "dashboard_answers"
+                            ][
+                                selected_qa_id
+                            ] = answers
+
+                        # =========================================
+                        # Success
+                        # =========================================
+
+                        st.divider()
+
+                        if final_result == "Approved":
+
+                            st.success(
+                                "SALE QA COMPLETED — APPROVED"
                             )
-                        )
 
-                        col1, col2 = st.columns(2)
+                        elif final_result == "Rejected":
+
+                            st.error(
+                                "SALE QA COMPLETED — REJECTED"
+                            )
+
+                        elif final_result == "Cancelled":
+
+                            st.warning(
+                                "SALE QA COMPLETED — CANCELLED"
+                            )
+
+                        elif (
+                            final_result
+                            == "Reworked Required"
+                        ):
+
+                            st.warning(
+                                "SALE QA COMPLETED — REWORK REQUIRED"
+                            )
+
+                        elif final_result == "Hold":
+
+                            st.info(
+                                "SALE QA COMPLETED — ON HOLD"
+                            )
+
+                        col1, col2, col3 = (
+                            st.columns(3)
+                        )
 
                         with col1:
 
+                            st.metric(
+                                "Quality Score",
+                                f"{score:.2f}%"
+                            )
+
+                        with col2:
+
+                            st.metric(
+                                "Fatal Failure",
+                                (
+                                    "YES"
+                                    if fatal_failure
+                                    else "NO"
+                                )
+                            )
+
+                        with col3:
+
+                            st.metric(
+                                "Final Result",
+                                final_result
+                            )
+
+                        if google_saved:
+
+                            st.success(
+                                "✓ Submitted and synced to Google Sheets."
+                            )
+
+                        # =========================================
+                        # GENERATE REPORTS
+                        # =========================================
+
+                        st.divider()
+
+                        st.subheader(
+                            "📄 Individual QA Report"
+                        )
+
+                        latest_sale_rows = df[
+                            df[
+                                "QA_ID"
+                            ].astype(str)
+                            == str(
+                                selected_qa_id
+                            )
+                        ]
+
+                        if not latest_sale_rows.empty:
+
+                            latest_sale = (
+                                latest_sale_rows.iloc[0]
+                            )
+
+                            report_base_name = (
+                                sale_report_filename(
+                                    latest_sale
+                                )
+                            )
+
+                            try:
+
+                                individual_excel = (
+                                    create_individual_excel(
+                                        latest_sale,
+                                        answers
+                                    )
+                                )
+
+                                individual_pdf = (
+                                    create_individual_pdf(
+                                        latest_sale,
+                                        answers
+                                    )
+                                )
+
+                                col1, col2 = (
+                                    st.columns(2)
+                                )
+
+                                with col1:
+
+                                    st.download_button(
+                                        "⬇️ Download Excel Report",
+                                        data=individual_excel.getvalue(),
+                                        file_name=(
+                                            report_base_name
+                                            + ".xlsx"
+                                        ),
+                                        mime=(
+                                            "application/vnd.openxmlformats-officedocument."
+                                            "spreadsheetml.sheet"
+                                        ),
+                                        use_container_width=True,
+                                        key=(
+                                            f"download_excel_"
+                                            f"{selected_qa_id}_"
+                                            f"{current_timestamp()}"
+                                        )
+                                    )
+
+                                with col2:
+
+                                    st.download_button(
+                                        "⬇️ Download PDF Report",
+                                        data=individual_pdf.getvalue(),
+                                        file_name=(
+                                            report_base_name
+                                            + ".pdf"
+                                        ),
+                                        mime="application/pdf",
+                                        use_container_width=True,
+                                        key=(
+                                            f"download_pdf_"
+                                            f"{selected_qa_id}_"
+                                            f"{current_timestamp()}"
+                                        )
+                                    )
+
+                            except Exception as e:
+
+                                st.error(
+                                    "QA was submitted, but the "
+                                    "individual reports could not "
+                                    "be generated."
+                                )
+
+                                st.exception(e)
+
+                        # =========================================
+                        # DOWNLOAD ALL QA DATA
+                        # =========================================
+
+                        st.divider()
+
+                        st.subheader(
+                            "Export All QA Data"
+                        )
+
+                        try:
+
+                            all_excel = (
+                                create_all_excel(
+                                    df,
+                                    st.session_state[
+                                        "qa_answers"
+                                    ]
+                                )
+                            )
+
                             st.download_button(
-                                "⬇️ Download Excel Report",
-                                data=individual_excel.getvalue(),
+                                "⬇️ Download All QA Data",
+                                data=all_excel.getvalue(),
                                 file_name=(
-                                    report_base_name
-                                    + ".xlsx"
+                                    "Sparta_QA_Results.xlsx"
                                 ),
                                 mime=(
                                     "application/vnd.openxmlformats-officedocument."
@@ -4857,39 +5032,21 @@ with qa_tab:
                                 ),
                                 use_container_width=True,
                                 key=(
-                                    f"download_excel_"
+                                    f"download_all_"
                                     f"{selected_qa_id}"
                                 )
                             )
 
-                        with col2:
+                        except Exception as e:
 
-                            st.download_button(
-                                "⬇️ Download PDF Report",
-                                data=individual_pdf.getvalue(),
-                                file_name=(
-                                    report_base_name
-                                    + ".pdf"
-                                ),
-                                mime="application/pdf",
-                                use_container_width=True,
-                                key=(
-                                    f"download_pdf_"
-                                    f"{selected_qa_id}"
-                                )
+                            st.error(
+                                "Could not create the all-data Excel export."
                             )
 
-                    except Exception as e:
-
-                        st.error(
-                            "Could not generate the individual "
-                            "QA report files."
-                        )
-
-                        st.exception(e)
+                            st.exception(e)
 
                 # ==============================================
-                # CURRENT RESULTS
+                # CURRENT QA RESULTS
                 # ==============================================
 
                 st.divider()
@@ -4921,266 +5078,6 @@ with qa_tab:
                     hide_index=True
                 )
 
-                # ==============================================
-                # ALL-RECORD EXCEL EXPORT
-                # ==============================================
-
-                st.divider()
-
-                st.subheader(
-                    "Export All QA Data"
-                )
-
-                # Reuse the existing two-sheet export
-                # functionality.
-
-                all_excel = BytesIO()
-
-                results_columns = [
-                    "QA_ID",
-                    "Serial_No",
-                    "Sale_Date",
-                    "Agent",
-                    "Verifier",
-                    "Company",
-                    "Customer_Name",
-                    "Phone",
-                    "Current_Provider",
-                    "Customer_Address",
-                    "Package_Offered",
-                    "Service",
-                    "Broadband_Type",
-                    "Router_Charges",
-                    "Payment_Frequency",
-                    "Payment_Method",
-                    "Contract_Duration",
-                    "Calling_Feature",
-                    "Bill_Cost",
-                    "Lead_Source",
-                    "QA_Status",
-                    "QA_Score",
-                    "Fatal_Failure",
-                    "Final_QA_Result",
-                    "Evaluator_Name",
-                    "Campaign_Line",
-                    "Call_Disposition",
-                    "Next_Review_Date",
-                    "QA_Comments"
-                ]
-
-                available_columns = [
-                    column
-                    for column in results_columns
-                    if column in df.columns
-                ]
-
-                results_df = df[
-                    available_columns
-                ].copy()
-
-                detailed_rows = []
-
-                for _, row in df.iterrows():
-
-                    qa_id = row[
-                        "QA_ID"
-                    ]
-
-                    row_answers = (
-                        st.session_state[
-                            "qa_answers"
-                        ].get(
-                            qa_id,
-                            {}
-                        )
-                    )
-
-                    detailed_row = {
-                        "QA_ID": qa_id,
-                        "Sale_Date": safe_value(
-                            row,
-                            "Sale_Date"
-                        ),
-                        "Agent": safe_value(
-                            row,
-                            "Agent"
-                        ),
-                        "Verifier": safe_value(
-                            row,
-                            "Verifier"
-                        ),
-                        "Customer_Name": safe_value(
-                            row,
-                            "Customer_Name"
-                        ),
-                        "Phone": safe_value(
-                            row,
-                            "Phone"
-                        ),
-                        "Current_Provider": safe_value(
-                            row,
-                            "Current_Provider"
-                        ),
-                        "Package_Offered": safe_value(
-                            row,
-                            "Package_Offered"
-                        ),
-                        "Service": safe_value(
-                            row,
-                            "Service"
-                        ),
-                        "Broadband_Type": safe_value(
-                            row,
-                            "Broadband_Type"
-                        ),
-                        "QA_Status": safe_value(
-                            row,
-                            "QA_Status"
-                        ),
-                        "QA_Score": row.get(
-                            "QA_Score",
-                            ""
-                        ),
-                        "Fatal_Failure": row.get(
-                            "Fatal_Failure",
-                            ""
-                        ),
-                        "Final_QA_Result": safe_value(
-                            row,
-                            "Final_QA_Result"
-                        ),
-                        "QA_Comments": safe_value(
-                            row,
-                            "QA_Comments"
-                        )
-                    }
-
-                    for parameter_id in range(
-                        1,
-                        29
-                    ):
-
-                        detailed_row[
-                            f"Parameter_{parameter_id}"
-                        ] = row_answers.get(
-                            parameter_id,
-                            "Yes"
-                        )
-
-                    detailed_rows.append(
-                        detailed_row
-                    )
-
-                detailed_df = pd.DataFrame(
-                    detailed_rows
-                )
-
-                with pd.ExcelWriter(
-                    all_excel,
-                    engine="xlsxwriter"
-                ) as writer:
-
-                    results_df.to_excel(
-                        writer,
-                        sheet_name="QA Results",
-                        index=False
-                    )
-
-                    detailed_df.to_excel(
-                        writer,
-                        sheet_name="Detailed QA",
-                        index=False
-                    )
-
-                    workbook = writer.book
-
-                    header_format = workbook.add_format({
-                        "bold": True,
-                        "text_wrap": True,
-                        "valign": "top"
-                    })
-
-                    for sheet_name, dataframe in [
-                        (
-                            "QA Results",
-                            results_df
-                        ),
-                        (
-                            "Detailed QA",
-                            detailed_df
-                        )
-                    ]:
-
-                        worksheet = writer.sheets[
-                            sheet_name
-                        ]
-
-                        for col_num, column_name in enumerate(
-                            dataframe.columns
-                        ):
-
-                            worksheet.write(
-                                0,
-                                col_num,
-                                column_name,
-                                header_format
-                            )
-
-                        worksheet.freeze_panes(
-                            1,
-                            0
-                        )
-
-                        if not dataframe.empty:
-
-                            worksheet.autofilter(
-                                0,
-                                0,
-                                len(dataframe),
-                                len(dataframe.columns) - 1
-                            )
-
-                        for col_num, column_name in enumerate(
-                            dataframe.columns
-                        ):
-
-                            if column_name.startswith(
-                                "Parameter_"
-                            ):
-
-                                width = 15
-
-                            elif column_name in [
-                                "Customer_Name",
-                                "QA_Comments"
-                            ]:
-
-                                width = 30
-
-                            else:
-
-                                width = 18
-
-                            worksheet.set_column(
-                                col_num,
-                                col_num,
-                                width
-                            )
-
-                all_excel.seek(0)
-
-                st.download_button(
-                    "⬇️ Download All QA Data",
-                    data=all_excel.getvalue(),
-                    file_name="Sparta_QA_Results.xlsx",
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
-                    ),
-                    use_container_width=True,
-                    key="download_all_qa"
-                )
-
     else:
 
         st.info(
@@ -5190,7 +5087,7 @@ with qa_tab:
 
 
 # ################################################################
-# AGENT DASHBOARD
+# AGENT DASHBOARD TAB
 # ################################################################
 
 with dashboard_tab:
@@ -5246,7 +5143,7 @@ with dashboard_tab:
     with col2:
 
         st.caption(
-            "Refresh reads the QA Records and QA Answers sheets once."
+            "Refresh performs the deliberate historical read from Google Sheets."
         )
 
     if refresh_dashboard:
@@ -5272,7 +5169,7 @@ with dashboard_tab:
             st.exception(e)
 
     # ======================================================
-    # DASHBOARD DATA
+    # DATA
     # ======================================================
 
     dashboard_df = st.session_state.get(
@@ -5303,6 +5200,10 @@ with dashboard_tab:
             .copy()
             .astype(object)
         )
+
+        # ==================================================
+        # COMPLETED ONLY
+        # ==================================================
 
         completed_df = dashboard_df[
             dashboard_df[
@@ -5357,7 +5258,9 @@ with dashboard_tab:
                     "### Filters"
                 )
 
-                col1, col2 = st.columns(2)
+                col1, col2 = (
+                    st.columns(2)
+                )
 
                 with col1:
 
@@ -5548,7 +5451,9 @@ with dashboard_tab:
 
                     st.metric(
                         "Sales Checked",
-                        len(dashboard_filtered)
+                        len(
+                            dashboard_filtered
+                        )
                     )
 
                 with col2:
@@ -5657,8 +5562,12 @@ with dashboard_tab:
                     )
 
                     ranking_rows.append({
-                        "Agent": str(agent),
-                        "Sales Checked": len(group),
+                        "Agent": str(
+                            agent
+                        ),
+                        "Sales Checked": len(
+                            group
+                        ),
                         "Average QA Score": round(
                             agent_average,
                             2
@@ -5730,7 +5639,9 @@ with dashboard_tab:
                         "Rank",
                         range(
                             1,
-                            len(ranking_df) + 1
+                            len(
+                                ranking_df
+                            ) + 1
                         )
                     )
 
@@ -5741,7 +5652,7 @@ with dashboard_tab:
                     )
 
                 # ==========================================
-                # PARAMETER PERFORMANCE
+                # 28 PARAMETERS
                 # ==========================================
 
                 st.divider()
@@ -5762,7 +5673,7 @@ with dashboard_tab:
                     )
                 )
 
-                parameter_display = (
+                st.dataframe(
                     parameter_df[
                         [
                             "Parameter",
@@ -5773,20 +5684,15 @@ with dashboard_tab:
                             "Applicable",
                             "Yes %"
                         ]
-                    ]
-                    .sort_values(
+                    ].sort_values(
                         "Yes %"
-                    )
-                )
-
-                st.dataframe(
-                    parameter_display,
+                    ),
                     use_container_width=True,
                     hide_index=True
                 )
 
                 # ==========================================
-                # WEAKEST PARAMETERS
+                # WEAKEST
                 # ==========================================
 
                 st.divider()
